@@ -1,0 +1,8 @@
+.DS_Store
+Thumbs.db
+*.log
+*.har
+__pycache__/
+*.pyc
+.env
+Manifest.toml
