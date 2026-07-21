@@ -261,6 +261,12 @@ function build_premod!(pstras::Dict{String,Any},
         "STOC" => NamedArray(CAPSTOK_id, Tuple([IND,REG]), (:IND,:DST)),
         # Add LCOM for top-down (pass from nat data if available)
         "LCOM" => haskey(elast, "LCOM") ? elast["LCOM"] : nothing,
+        # Pass-through for Step 4 derived parameters
+        "BSMR" => haskey(pstras, "BSMR") ? pstras["BSMR"] : nothing,
+        "UTAX" => haskey(pstras, "UTAX") ? pstras["UTAX"] : nothing,
+        "2PUR" => haskey(pstras, "2PUR") ? pstras["2PUR"] : nothing,
+        "STOK" => haskey(pstras, "STOK") ? pstras["STOK"] : nothing,
+        "1PTX" => haskey(pstras, "1PTX") ? pstras["1PTX"] : nothing,
     )
 
     PremodResult(premod=premod_out, weights=weights, diag=Dict{String,Any}())

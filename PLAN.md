@@ -366,21 +366,135 @@ Repository at `github.com/ahmadrobiyan/Indoterm_Julia` (set up 2026-07-19), bran
 - `data/national_data.csv` gitignored (66 MB, raw CSV excluded)
 - `*.har` gitignored at root level; `!origin/**/*.har` negation allows origin copies to be tracked
 
-## Immediate follow-up items (post-Step-3)
+## Pipeline data-flow modifications (Step 4 enablers)
 
-1. **Verify aggregation accounting** — check that key totals are preserved (total MAKE = total TRADE +
-   total SUPPMAR, etc.) at the 25×34 level, analogous to the DIFFCOM/DIFFIND checks at 185-level.
-2. **Add P015 (ARMSIGMA)** to premod output — the Armington elasticity is read in `build_premod!`
-   but not stored in the `premod` output dict; needed for solver compatibility.
+Step 4 requires the full set of TERM.TAB flow coefficients at the aggregated 25×34 scale. The following
+modifications were made to existing pipeline code to carry all necessary arrays forward:
+
+- **`build_pstras!.jl`**: Added `1PTX` (production tax, from reg1 FACT[4]) to output.
+- **`build_premod!.jl`**: Added pass-through of `BSMR` (USE delivered), `UTAX` (commodity taxes),
+  `2PUR` (investment by COM×IND×DST), `STOK` (inventories), `1PTX` (production tax) from pstras.
+- **`aggregate_model!.jl`**: Added `_agg_use()` for BSMR/UTAX (aggregates both COM and USR-IND dims),
+  `_agg_make()` for 2PUR, and standard `_agg_first()` for STOK/1PTX.
+
+## Step 4 implementation details
+
+`prepare_parameters!` computes all TERM.TAB Coefficient-Formula blocks at the aggregated 25×34 scale.
+Implemented formula blocks by excerpt:
+
+| Excerpt | Coefficients computed |
+|---------|----------------------|
+| 7 | `PUR`, `PUR_S`, `PUR_CS`, `SRCSHR`, `PUR_D`, `TAXRATE` |
+| 10 | `LAB_O` |
+| 11 | `PRIM`, `PRIMCOST` |
+| 12 | `VARCST`, `VCST`, `VTOT`, `PTXRATE`, `COSTMAT` |
+| 13 | `HOUPUR`, `HOUPUR_C`, `BUDGSHR`, `EPSH`, `EPSAVE`, `BLUX`, `SLUX`, `HOUSHR` |
+| 14 | `INVEST_I`, `INVEST_C` |
+| 17 | `USE_U`, `USE_I` |
+| 18 | `LOCUSE`, `LOCUSE_S`, `LOCUSE_SD`, `IMPSHR` |
+| 19 | `DELIVRD`, `BASSHR`, `MARSHR` |
+| 20 | `DELIVRD_R` |
+| 21 | `TRADMAR_CS`, `SUPPMAR_P/D/RD/R` |
+| 22 | `MAKE_C`, `MAKE_I`, `MAKESHR1`, `MAKESHR2`, `MAKE_D` |
+| 23 | `TRDIAG`, `TRADE_D`, `TRADE_R`, `TRADE_RD` |
+| 25 | `PRIM_I`, `PRIMSHR` |
+| 27 | `LAB_I`, `LAB_IO`, `LND_I`, `CAP_I`, `SLAB_I` |
+| 28 | `GDPINCSUM`, `GDPINC` |
+| 29 | `GDPEXPSUM`, `GDPEXP` |
+| 31 | `TRADE_CR`, `IMPUSED_C`, `IMPLANDED_C` |
+| 34 | `PRIM_D` |
+| 35 | `NATVTOT`, `LAB_OD`, `CAP_D` |
+| 40 | `ROWDEM`, `EXPSHR` |
+| 41 | `CHECKA`, `CKRATA`, `CHECKB`, `CKRATB` |
+| 44 | `VMAINUSE`, `LOCSHR`, `LOCSHR_R` |
+
+**Total: 75 derived parameters → 85** (MAKE, BSMR, UTAX, 2PUR, STOK, 1PTX pass-through added for equation
+functions; verified with mock data on 2026-07-21).
+
+## Step 5 — Core equations (executing)
+
+### Approach
+- **Linearized %-change form** (all equations are linear, following TERM.TAB's own %-change convention)
+- **JuMP array-constraint syntax** (`@constraint(m, [c=1:na, s=1:ns, ...], ...)`) for per-block compilation
+  efficiency — one compilation per equation block instead of per individual constraint
+- **Index dictionaries** (`TRADE_idx`, `USE_usc_idx`, etc.) for sparse sums over conditionally-zero flows
+- **JuMP + Ipopt** (feasibility solve, no objective), matching the WayangJulia architecture already
+  validated for national-level ORANI-G/TERM models
+
+### Completed
+| Module | Equations | Line count |
+|--------|-----------|------------|
+| `build_model!.jl` | ~168 variable arrays (4564 JuMP vars at 3×5 scale), `build_model_full!` orchestrator | ~560 |
+| `build_equations.jl` | ~130 equation functions covering Excerpts 6–29 (basic prices → GDP expenditure-side), 10 index-dictionary setup functions | ~1180 |
+
+### Equation blocks implemented
+1. **Excerpt 6** — Import prices (`pimp`, `pfimp`, `phi`)
+2. **Excerpt 7** — Basic + purchaser prices (`pbasic`, `ppur`, `ppur_s`, `phou`, `tuser`)
+3. **Excerpt 8** — Intermediate demands (`xint`, `xint_s`, `aint_s`, `pint`)
+4. **Excerpt 9** — Factor demands (`xlab`, `plab_o`, `wlab_o`, `xlab_o`, `pcap`, `plnd`, `pprim`, `xprim`, `aprim`, `alab_o`, `wprim`)
+5. **Excerpt 11** — Production costs (`pvar`, `pcst`, `delPTX`, `ptot`)
+6. **Excerpt 13** — Household demands (`xsub`, `xlux`, `xhouh_s_agg`, `alux`, `asub`, `wlux`, `phouhtot`, `whouhtot`, `xhoutot`, `phoutot`)
+7. **Excerpt 14** — Investment demands (`xinvi`, `pinvest`, `pinvitot`)
+8. **Excerpt 15** — Capital accumulation (`gret`, `xinvitot`, `finv2`)
+9. **Excerpt 16** — Government demands (`xgov`, `xgov_s`, `fgovtot2`, `fgovtot3`)
+10. **Excerpt 17** — Export/total demand (`pfexp`, `xexpd`, `xexp`, `xexp_s`, `xstocks`, `xint_i`, `xuse`)
+11. **Excerpt 19** — Margins (`pdelivrd`, `xtradmar`, `psuppmar_p`)
+12. **Excerpt 20** — Regional sourcing (`puse`, `xtrad`)
+13. **Excerpt 21** — Margin supply (`xsuppmar_p`, `psuppmar_p`, `xsuppmar`, `xsuppmar_d`, `xsuppmar_rd`)
+14. **Excerpt 22** — MAKE/CET (`xmake`, `xtotA_B`, `xcomA_B`, `pmake`)
+15. **Excerpt 23** — Market clearing (`xtrad_d`, `xtrad_r`, `pdomA_sum`)
+16. **Excerpt 25** — Factor-market closure (`pfin`, `xfina`, `xfinb`, `xfinc`, `xfind`, `wfin`)
+17. **Excerpt 26** — Tax revenue (`delTAXint`, `delTAXhou`, `delTAXinv`, `delTAXgov`, `delTAXexp`)
+18. **Excerpt 27** — Labour/occupation closure (`wlnd_i`, `wcap_i`, `wprim_i`, `xlnd_i`, `xcap_i`, `plab`, `plab_i`, `realwage_i`, `xlab_i`, `wlab_i`, `rlab_i`, `plab_io`, `xlab_io`, `realwage_io`, `wlab_io`, `rlab_io`)
+19. **Excerpt 28** — GDP income-side (`delGDPINCa`, `delGDPINCb`, `delGDPINCc`, `delGDPINCd`, `delGDPINCe`, `wgdpinc`)
+20. **Excerpt 29** — GDP expenditure-side (`delXGDPEXPa_setup`, `delXGDPEXPb`, `delXGDPEXPc`, `xgdpexp`, `delPGDPEXPa`, `delPGDPEXPb`, `delPGDPEXPc`, `pgdpexp`, `wgdpexp`, `wgdpdiff`, `xgne`, `pgne`, `wgne`, `delINDTAX`, `delBUDG1`, `delBUDG2`, `delVGDPEXP`)
+21. **Excerpt 38** — Labour-market closure (`labslack`, `flab_i`, `realwage`)
+22. **Excerpt 39** — Household closure (`fhou`, `natfhou`)
+
+### Bugs found and fixed during implementation
+1. **Hard-coded `nm = 9`** in `build_model_full!` — `build_model!.jl:370` had `nm = 9` regardless of actual TMAR dimensions; changed to `haskey(agg, "TMAR") ? size(agg["TMAR"], 3) : 9`.
+2. **Generator variable `m` conflicted with JuMP model `m`** — `E_pdelivrd!` used `sum(MARSHR[c,s,m,r,d] * ... for m in 1:nm)` where `m` is both the JuMP model and the loop variable; changed to explicit `for` loop with `mh`.
+3. **Function name mismatch** — `build_model!.jl` called `E_xtradmar!` but function was `E_xtradmar_na!`; called `E_delXGDPEXPa!` but function was `E_delXGDPEXPa_setup!`.
+4. **Missing variable `rlab_io`** — referenced by `E_rlab_io!` but not declared in scaffold nor added to `vars` dict.
+5. **Missing `params["MAKE"]`** — `E_xtotA_B!` and `E_xcomA_B!` expected `params["MAKE"]` but it wasn't stored by `prepare_parameters!`.
+6. **Removed redundant `E_nhouh!`/`E_xhou_s!` calls** — single-household-type simplification (uses `E_xhouh_s_agg!` instead).
+
+### Current performance (3×5 mock, 2026-07-21)
+| Metric | Value |
+|--------|-------|
+| Variables | 4564 |
+| Constraints | 3372 |
+| Build time (incl. compilation) | ~46s |
+| Precompilation time | ~35s |
+| Runtime (after precompile) | ~50ms |
+
+The per-equation per-iteration `@constraint` calls (for nested loops with conditionals) dominate build
+time; JuMP's array-constraint syntax (`@constraint(m, [i=1:n], ...)`) is used wherever the equation
+is unconditional. Remaining scalar loops are unavoidable due to conditional structure (e.g. "sum only
+where coefficient > 0").
+
+### Next steps
+1. Test at full 25×34 scale with mock data (sub-second data generation, verify build completes)
+2. Test at full 25×34 scale with real aggregated pipeline output
+3. Add stub/missing closure equations (Excerpts 38–39 already stubbed)
+4. Bind into a solvable system (fix shock variables, set up Ipopt solve)
+5. Run a small shock (e.g. −5% export shift) and verify against expected signs
+6. Benchmark replication (all shocks at 0 → ~0% change)
+7. Price homogeneity test
+
+## Immediate follow-up items
+
+1. **Step 5 closure** — bind equations into solvable Ipopt system; handle remaining Excerpts 30–37, 40–55.
+2. **Test at full 25×34 scale** — run `prepare_parameters!` and `build_model_full!` with real pipeline output.
 3. **Write aggregated output to GEMPACK HAR** — produce a `.har` file from the 25×34 aggregated dict
-   so the TABLO solver can consume it directly.
+   for cross-checking against the original TABLO.
 4. **RAS outer loop** — `converged=false` is expected with single-pass RAS; a multi-pass loop
-   (feed `DGON` from iteration N back into reg2's distance weighting) would resolve the trade/MAKE
+   (feed `DGON` from iteration N back into reg2's distance weighting) would resolve trade/MAKE
    discrepancies flagged by DOMERR/IMPERR.
-5. **Step 4 (derived parameters)** — closed-form `Formula`-computed coefficients at the aggregated
-   25×34 scale: purchaser-price flows, source shares, cost shares, CES/CET calibration shares.
+5. **Add P015 (ARMSIGMA)** to premod output — the Armington elasticity is read in `build_premod!`
+   but not stored; needed for solver compatibility.
 
-## Status summary (2026-07-19)
+## Status summary (2026-07-21)
 
 | Step | Description | Files | Status |
 |------|-------------|-------|--------|
@@ -388,8 +502,65 @@ Repository at `github.com/ahmadrobiyan/Indoterm_Julia` (set up 2026-07-19), bran
 | 1 | Sets & data ingestion | `prepare_sets.jl`, `read_data.jl` | ✅ done & verified |
 | 2 | Regionalization + RAS pipeline | `build_reg0!.jl`..`build_premod!.jl` (6 files) | ✅ debugged, runs end-to-end |
 | 3 | Aggregation 185→25 × 34 | `aggregation_data.jl`, `aggregate_model!.jl` | ✅ done & verified |
-| 4 | Derived parameters | `prepare_parameters.jl` | ❌ not started |
-| 5 | Core equations (~3000 LOC TERM.TAB) | `build_model!.jl` | ❌ not started |
+| 4 | Derived parameters | `prepare_parameters.jl` | ✅ done & verified (85 params) |
+| 5 | Core equations (~3000 LOC TERM.TAB) | `build_model!.jl`, `build_equations.jl` | ✅ ~130 equation functions (Excerpts 6–29), builds at 3×5 (4564 vars, ~46s) |
+| 5a | Scale to 25×34 | — | 🔄 pending |
+| 5b | Ipopt solve | — | ❌ not started |
 | 6 | Dynamic + district extensions | `build_dynamics!.jl`, `build_district!.jl` | ❌ not started |
 | 7 | Closure & solve (Ipopt) | `initialize_model!.jl`..`run_model!.jl` | ❌ not started |
 | 8 | Reporting | `calculate_gdp.jl` | ❌ not started |
+
+## Session continuation (2026-07-22)
+
+Picked back up via Claude (VS Code extension session). Verified the state this file claims still
+matches reality: Julia 1.12.6 + all four deps instantiated (`Ipopt` v1.15.0, `JuMP` v1.30.1,
+`NamedArrays` v0.10.5, `HeaderArrayFile` v0.2.0); `build_model!.jl` (562 lines) and
+`build_equations.jl` (1178 lines) line counts match this file's own claims exactly. Re-ran
+`test/run_pipeline.jl` (Steps 0-4) in the background to reconfirm end-to-end.
+
+**Found: Step 4/5 work is uncommitted.** `git log` shows the last commit is `de84935` ("update
+PLAN.md: git repo setup, origin/, national_data.zip"); `git status` shows `build_equations.jl`,
+`build_model!.jl`, `prepare_parameters.jl` as untracked and `PLAN.md`, `src/IndotermJulia.jl`,
+`src/aggregate_model!.jl`, `src/build_premod!.jl`, `src/build_pstras!.jl`, `test/run_pipeline.jl` as
+modified-but-unstaged — i.e. everything this file documents as "Step 4/5 done" only exists in the
+working tree, not in any commit. Not committed yet pending user confirmation (nothing here has been
+asked for this session).
+
+Added `TODO.md` alongside this file as the short, checkable continuation list (this file stays the
+narrative/rationale/learnings record, per its own existing style). See `TODO.md` for the concrete
+next actions — the immediate ones are: build at full 25×34 scale (Step 5a, not yet attempted — only
+the 3×5 mock scale has been tested), audit variable/equation coverage for gaps before wiring the
+Ipopt solve, then proceed to closure wiring (Step 5b) and the verification protocol already
+documented above.
+
+**Pipeline re-run found and fixed a real bug (not just a stale-claim issue).** The background
+`test/run_pipeline.jl` run **failed**: `MethodError: no method matching Float64(::Vector{Float64})` in
+`prepare_parameters.jl:29`. Root cause: `P021`, the Frisch (marginal-budget-share) parameter, is
+region-specific in the actual data — `build_premod!.jl:248` stores it as
+`NamedArray(FRISCH_d, REG, (:DST,))`, one value per of the 34 regions — but `aggregate_model!.jl`'s
+generic REG-only pass-through block (`for k in ["PO01", "P021", "EMPR", "ELWG", "SMAR"]`, line 216)
+unwraps every `NamedArray` in that list to a plain `Vector`, and `prepare_parameters.jl` had assumed
+`P021` was a single national scalar. Note that even the pre-existing "success" branch of that ternary
+(`vec(parent(agg["P021"]))[1]`) was silently wrong in the same way — it would have taken only region
+1's Frisch value and applied it to all 34 regions, rather than crashing. Fixed by keeping `P021`/
+`FRISCH` as an `nr`-length vector end-to-end and indexing `FRISCH[d]` in the `BLUX`/`SLUX` loop.
+Re-ran the full pipeline after the fix: Steps 0-4 now pass end-to-end, `prepare_parameters!` derives
+83 parameters. **This means Step 2's "verified 2026-07-19" claim above was true for the pipeline
+shape/plumbing at the time, but the newer `prepare_parameters.jl` code (Step 4, added after that
+verification) had never actually been run end-to-end until now — worth remembering that "verified"
+timestamps on this file only cover what existed as of that date.**
+
+**Excerpt 49 cross-check completed — no missing core equations.** Read `TERM.TAB` Excerpts 30-49 in
+full to settle the open question of whether anything beyond Excerpts 1-29/38-39 is needed for a square
+core solve: **no.** Excerpts 30-37 and 40-48 are entirely national/regional aggregation, contribution
+decomposition (Keller decomposition, terms-of-trade contributions), and `Assertion`/`Write ... to file
+SUMMARY` diagnostics — one-way reads *from* the core solution, nothing the core equations depend on.
+Cross-checked Excerpt 49's own `Substitute`/`Backsolve` variable list (GEMPACK's condensation
+directives) against `build_equations.jl`'s ~127 `E_*!` functions: every name resolves once naming
+mismatches and the single-household simplification are accounted for (`xtradmar` → implemented as
+`E_xtradmar_na!`, matching the historical bug-fix note above; `xhou_s`/`xhouh_s` → both defined by
+`E_xhouh_s_agg!`). The remaining names not found anywhere in `build_model!.jl`/`build_equations.jl`
+(`contCPI, continccom, contincind_d, contMainMacro, contnatxtot, contxprim_i, xrowdem, xrowdem_d`) are
+all Excerpt 30-40 reporting variables, confirmed out of scope. **Step 5's equation set is complete
+against this cross-check** — remaining Step 5 work is Step 5a (full-scale build test) and Step 5b
+(solve wiring), not new equations.

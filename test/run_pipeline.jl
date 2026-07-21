@@ -69,7 +69,38 @@ println("TMAR: size=$(size(agg_r.agg["TMAR"]))")
 @assert size(agg_r.agg["TMAR"]) == (25,2,9,34,34) "TMAR should be (25,2,9,34,34)"
 println("Aggregation shapes verified ✓")
 
+# ── Step 4: Derived parameters ──────────────────────────────────────────────
+println("\n--- prepare_parameters! ---")
+params = prepare_parameters!(agg_r.agg)
+println("Derived $(length(params)) parameters")
+@assert haskey(params, "LAB_O") "LAB_O missing"
+@assert haskey(params, "PRIM") "PRIM missing"
+@assert haskey(params, "DELIVRD") "DELIVRD missing"
+@assert haskey(params, "PUR_S") "PUR_S missing"
+@assert haskey(params, "PUR_CS") "PUR_CS missing"
+@assert haskey(params, "SRCSHR") "SRCSHR missing"
+@assert haskey(params, "HOUPUR") "HOUPUR missing"
+@assert haskey(params, "BUDGSHR") "BUDGSHR missing"
+@assert haskey(params, "MAKE_C") "MAKE_C missing"
+@assert haskey(params, "MAKE_I") "MAKE_I missing"
+@assert haskey(params, "TRADE_D") "TRADE_D missing"
+@assert haskey(params, "VARCST") "VARCST missing"
+@assert haskey(params, "VCST") "VCST missing"
+@assert haskey(params, "VTOT") "VTOT missing"
+@assert haskey(params, "COSTMAT") "COSTMAT missing"
+@assert haskey(params, "PRIM_I") "PRIM_I missing"
+@assert haskey(params, "PRIMSHR") "PRIMSHR missing"
+@assert haskey(params, "GDPINCSUM") "GDPINCSUM missing"
+@assert haskey(params, "GDPEXP") "GDPEXP missing"
+@assert haskey(params, "GDPEXPSUM") "GDPEXPSUM missing"
+@assert size(params["DELIVRD"]) == (25,2,34,34)
+@assert size(params["PUR_CS"]) == (29,34)
+@assert size(params["SRCSHR"]) == (25,2,29,34)
+@assert size(params["COSTMAT"]) == (25,7,34)
+@assert size(params["GDPEXPSUM"]) == (34,9)
+println("Derived parameter shapes verified ✓")
+
 println("\n"^2)
 println("="^60)
-println("ALL STAGES (0-3) COMPLETED SUCCESSFULLY")
+println("ALL STAGES (0-4) COMPLETED SUCCESSFULLY")
 println("="^60)

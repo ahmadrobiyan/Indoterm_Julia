@@ -23,6 +23,28 @@ function _agg_make(MAKE_raw::AbstractArray{T}, map::Vector{Int}, na::Int) where 
     out
 end
 
+"Aggregate USE/TAX array: COM×SRC×USR×DST → AGG×SRC×USR_AGG×DST.
+ USR = [IND(old 185) + FINDEM(Hou,Inv,Gov,Exp)] → [AGG(25) + FINDEM(4)]"
+function _agg_use(USE_raw::AbstractArray{T}, map::Vector{Int}, na::Int, nr::Int) where {T}
+    ns = size(USE_raw, 2)
+    nu_old = size(USE_raw, 3)
+    nu_new = na + 4
+    out = zeros(T, na, ns, nu_new, nr)
+    for c_old in 1:length(map)
+        cn = map[c_old]
+        for s in 1:ns
+            for u_old in 1:nu_old
+                un = u_old <= 185 ? map[u_old] : (na + (u_old - 185))
+                @assert 1 <= un <= nu_new "un=$un out of range [1,$nu_new]"
+                for d in 1:nr
+                    out[cn, s, un, d] += USE_raw[c_old, s, u_old, d]
+                end
+            end
+        end
+    end
+    out
+end
+
 "Recursively unwrap NamedArray to plain array"
 _unwrap(x) = x
 _unwrap(x::NamedArray) = parent(x)
@@ -57,7 +79,7 @@ function aggregate_model!(premod::Dict{String,Any})
     end
 
     # IND-indexed flows: sum-aggregate over IND
-    for k in ["1LAB", "1CAP", "1LND", "STOC"]
+    for k in ["1LAB", "1CAP", "1LND"]
         if haskey(premod, k)
             agg[k] = _agg_first(_unwrap(premod[k]), mp, na)
         end
@@ -160,6 +182,33 @@ function aggregate_model!(premod::Dict{String,Any})
             agg["LCOM"] = agg_lcom
         else
             agg["LCOM"] = lcom
+        end
+    end
+
+    # BSMR, UTAX: COM×SRC×USR×DST → AGG×SRC×USR_AGG×DST
+    #   USR = IND(185) + FINDEM(4) → AGG(25) + FINDEM(4)
+    for k in ["BSMR", "UTAX"]
+        if haskey(premod, k) && premod[k] !== nothing
+            data = _unwrap(premod[k])
+            @assert size(data,1) == 185 "Expected $k dim 1 = 185, got $(size(data,1))"
+            agg[k] = _agg_use(data, mp, na, nr)
+        end
+    end
+
+    # 2PUR: COM×IND×DST → AGG×AGG×DST (like MAKE)
+    if haskey(premod, "2PUR") && premod["2PUR"] !== nothing
+        agg["2PUR"] = _agg_make(_unwrap(premod["2PUR"]), mp, na)
+    end
+
+    # STOK, 1PTX: IND×DST → AGG×DST
+    for k in ["STOK", "1PTX"]
+        if haskey(premod, k) && premod[k] !== nothing
+            data = _unwrap(premod[k])
+            if ndims(data) == 2 && size(data,1) == 185
+                agg[k] = _agg_first(data, mp, na)
+            else
+                agg[k] = data
+            end
         end
     end
 

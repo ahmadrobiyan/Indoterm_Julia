@@ -38,13 +38,16 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
     V1LAB_iod = zeros(T, NI, NO, NR)
     V1CAP_id  = zeros(T, NI, NR)
     V1LND_id  = zeros(T, NI, NR)
+    V1PTX_id  = zeros(T, NI, NR)
     for i in 1:NI, d in 1:NR
         g_lab = findfirst(==("Labour"),   ["Labour","Capital","Land","ProdTax"])
         g_cap = findfirst(==("Capital"),  ["Labour","Capital","Land","ProdTax"])
         g_lnd = findfirst(==("Land"),     ["Labour","Capital","Land","ProdTax"])
+        g_ptx = findfirst(==("ProdTax"),  ["Labour","Capital","Land","ProdTax"])
         for o in 1:NO; V1LAB_iod[i,o,d] = 0.0; end
         V1CAP_id[i,d]  = FAC_r[i,g_cap,d]
         V1LND_id[i,d]  = FAC_r[i,g_lnd,d]
+        V1PTX_id[i,d]  = FAC_r[i,g_ptx,d]
     end
 
     # ── MAKE_I ──────────────────────────────────────────────────────────────
@@ -205,6 +208,7 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
         "1LAB" => NamedArray(V1LAB_iod, Tuple([IND,OCC,REG]), (:IND,:OCC,:DST)),
         "1CAP" => NamedArray(V1CAP_id, Tuple([IND,REG]), (:IND,:DST)),
         "1LND" => NamedArray(V1LND_id, Tuple([IND,REG]), (:IND,:DST)),
+        "1PTX" => NamedArray(V1PTX_id, Tuple([IND,REG]), (:IND,:DST)),
         "TRAD" => ras["TRAD"],
         "MARS" => ras["MARS"],
         "TMAR" => ras["TMAR"],
