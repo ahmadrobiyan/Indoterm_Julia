@@ -1,9 +1,8 @@
 # IndotermJulia — Implementation Plan
 
-> **Session breadcrumb:** This file was originally authored by Claude (Anthropic).
-> opencode (continuation session, 2026-07-19) is carrying forward the translation —
-> all edits below this line with the `[opencode]` marker are by the continuation agent.
-> See Step 2 Learnings for details of what was added.
+> **Session breadcrumb:** Originally authored by Claude (Anthropic). Steps 2-3 debugged,
+> implemented, and verified by opencode (continuation session, 2026-07-19). Git repo set up
+> 2026-07-19 at `github.com/ahmadrobiyan/Indoterm_Julia`.
 
 Julia translation of **INDOTERM** (a TERM-family, ORANI-G-derived, multi-region CGE model of
 Indonesia — `TERM.TAB`, "fast multi-region model designed by Mark Horridge, 2002-6", with a 2013
@@ -348,6 +347,24 @@ scale translation did.
 
 Steps 0-1 were executed by Claude (original session). Steps 2-3 were debugged/implemented and
 verified end-to-end by opencode (continuation session, 2026-07-19).
+
+## Git repo
+
+Repository at `github.com/ahmadrobiyan/Indoterm_Julia` (set up 2026-07-19), branch `master`.
+
+**Pushed contents:**
+- `IndotermJulia/` — full Julia project (Steps 0-3)
+- `origin/` — all original GEMPACK INDOTERM source files (124 files), including:
+  - TABLO sources: `.tab` (reg0-2, init, premod, pstras, trdras, raslin, aggset, preagg, CHKMOD, TERM)
+  - Data files: `national.har` (4.3 MB), `regsupp.har` (70 KB), `DISTGONE.HAR` (54 KB)
+  - Aggregation: `sec.agg`, `reg.agg` + 8 dashagg variants
+  - Closures: `TERM.CMF`, `LONGRUN.CMF`, `sim1.cmf` etc.
+  - Scripts: `.bat` pipeline runners, `.STI` run stubs
+  - Docs: `datnotes.txt`, `regdata.doc`, `readme.txt`, `draftreport.pdf`
+  - `basemap/`, `.exe` utilities, `.sif` linker files
+- `data/national_data.zip` — zipped CSV export of national.har (66→12 MB, regenerable via `export_har_csv.py`)
+- `data/national_data.csv` gitignored (66 MB, raw CSV excluded)
+- `*.har` gitignored at root level; `!origin/**/*.har` negation allows origin copies to be tracked
 
 ## Immediate follow-up items (post-Step-3)
 
