@@ -217,6 +217,7 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
         # Pass through USE and TAXES for premod
         "BSMR" => haskey(ras, "BSMR") ? ras["BSMR"] : nothing,
         "UTAX" => haskey(reg1, "UTAX") ? reg1["UTAX"] : nothing,
+        "2PUR" => haskey(ras, "2PUR") ? ras["2PUR"] : nothing,
     )
 
     PstrasResult(pstras=pstras_out, diag=Dict{String,Any}(), converged=converged)

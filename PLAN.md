@@ -564,3 +564,34 @@ mismatches and the single-household simplification are accounted for (`xtradmar`
 all Excerpt 30-40 reporting variables, confirmed out of scope. **Step 5's equation set is complete
 against this cross-check** — remaining Step 5 work is Step 5a (full-scale build test) and Step 5b
 (solve wiring), not new equations.
+
+**Step 5a — full 25×34 scale build: done, one real bug found and fixed.** Added
+`test/run_full_model.jl` to run the whole pipeline (Steps 0-4) and then `build_model_full!` at the
+real aggregation scale, not the 3×5 mock used during Step 5's original implementation. First attempt
+failed: `KeyError: key "INVEST_C" not found` in `build_model!.jl:49`. Traced it back through every
+pipeline stage (`reg1`→`reg2`→`ras_balance!`→`build_pstras!`→`build_premod!`→`aggregate_model!`) by
+comparing each stage's printed key list: `2PUR` (the investment-by-commodity-by-industry matrix)
+is present in `reg1`, `reg2`, and `ras`'s output dicts (it's carried through unchanged, never
+RAS-balanced), but **`build_pstras!.jl`'s output dict never included a `"2PUR"` key at all** — the
+one stage that silently dropped it. Every downstream stage handled the missing key "correctly" in
+isolation (`build_premod!.jl`'s `haskey(pstras,"2PUR") ? ... : nothing`, `aggregate_model!.jl`'s
+`premod["2PUR"] !== nothing` guard, `prepare_parameters.jl`'s `V2PUR !== nothing` guard around the
+`INVEST_I`/`INVEST_C` block) — which is exactly why this went unnoticed until a consumer
+(`build_model!.jl`) read `params["INVEST_C"]` unconditionally. Fixed with a one-line pass-through
+addition to `build_pstras!.jl`, mirroring the existing `BSMR`/`UTAX` pattern. After the fix:
+
+- Pipeline: `agg keys: 30, params: 85` (up from 29/83 — the two new `INVEST_I`/`INVEST_C` keys).
+- Full model build: **98.0s**, **2,376,562 variables**, **1,368,512 constraints**, 169 entries in
+  the `vars` dict.
+- The ~1.008M vars-minus-constraints gap is **expected, not a bug** — this is the normal pre-closure
+  state of any GEMPACK-style CGE model: the full variable set always exceeds the core equation count,
+  and a *closure* (Step 5b) designates exactly that many variables exogenous (fixed at their
+  benchmark value) to square the system. `TERM.CMF`'s exogenous-variable list should specify close to
+  1,008,050 variables; this is worth a sanity-check once `initialize_model!.jl` is written, as a large
+  mismatch there would indicate a missed equation or an extra undeclared variable.
+
+Also fixed a second, unrelated bug uncovered by the same test run: `test/run_full_model.jl` itself
+called `num_constraints(m, F, S; count_variable_in_set_constraints=false)` per constraint-type pair,
+but that keyword isn't accepted by that method signature in JuMP 1.30.1 — only the no-argument
+`num_constraints(m; count_variable_in_set_constraints=false)` form supports it. Not a translation
+bug, just a test-script API mismatch; fixed by switching to the simpler call.

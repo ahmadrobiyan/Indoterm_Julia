@@ -28,8 +28,7 @@ elapsed = time() - t0
 println("Build completed in $(round(elapsed, digits=1))s")
 
 nvars = num_variables(m)
-ncons = sum(num_constraints(m, F, S; count_variable_in_set_constraints=false)
-            for (F, S) in list_of_constraint_types(m))
+ncons = num_constraints(m; count_variable_in_set_constraints=false)
 println("Variables:   $nvars")
 println("Constraints: $ncons")
 println("vars dict entries: $(length(vars))")

@@ -6,12 +6,10 @@
 
 ## Housekeeping (do first)
 
-- [ ] **Commit or stash Step 4/5 work.** `git status` shows `build_equations.jl`, `build_model!.jl`,
-      `prepare_parameters.jl` as **untracked**, and `PLAN.md`, `src/IndotermJulia.jl`,
-      `src/aggregate_model!.jl`, `src/build_premod!.jl`, `src/build_pstras!.jl`,
-      `test/run_pipeline.jl` as **modified but unstaged**, since the last commit
-      (`de84935`, "update PLAN.md: git repo setup..."). Ask the user before committing — none of
-      this has been asked for yet this session.
+- [x] ~~**Commit or stash Step 4/5 work.**~~ — committed 2026-07-22 as `e5381a9` ("Add Step 4/5 core
+      translation: derived parameters and CGE equations"), covering `build_equations.jl`,
+      `build_model!.jl`, `prepare_parameters.jl`, the `PLAN.md`/`TODO.md` updates, the P021/FRISCH
+      fix, and `test/run_full_model.jl`. Not yet pushed to `origin/master` — ask before pushing.
 
 ## Step 5 completion (core equations) — current focus
 
@@ -26,10 +24,21 @@
       **Fixed**: `P021_v` is now carried as an `nr`-length vector throughout, and `FRISCH` in the
       `BLUX`/`SLUX` loop is indexed by region (`FRISCH[d]`) instead of being a single scalar. Re-ran
       full pipeline (Steps 0-4) after the fix — passes end-to-end, "Derived 83 parameters ✓".
-- [ ] **Step 5a — build at full 25×34 scale.** Run `build_model_full!` against real pipeline output
-      (not the 3×5 mock used so far). Confirm it compiles/builds without shape errors and note new
-      timing (mock was ~46s build/~35s precompile at 3×5; full scale will be larger — TRADMAR-like
-      arrays are ~520k cells at 25×34).
+- [x] ~~**Step 5a — build at full 25×34 scale.**~~ — **done 2026-07-22.** First attempt hit
+      `KeyError: key "INVEST_C" not found` in `build_model!.jl:49`. Root cause: `2PUR` (the
+      investment-by-commodity-by-industry matrix) passes through unchanged from `reg1` → `reg2` →
+      `ras_balance!` (confirmed present in all three), but `build_pstras!.jl`'s output dict simply
+      never included a `"2PUR"` entry — the only stage in the chain that dropped it. Downstream,
+      `build_premod!.jl`'s `haskey(pstras,"2PUR") ? ... : nothing` silently degraded to `nothing`,
+      `aggregate_model!.jl` never populated `agg["2PUR"]`, and `prepare_parameters.jl`'s
+      `INVEST_I`/`INVEST_C` block (guarded on `V2PUR !== nothing`) silently skipped — so the params
+      dict was missing two keys that `build_model!.jl` reads unconditionally. **Fixed** by adding
+      `"2PUR" => haskey(ras,"2PUR") ? ras["2PUR"] : nothing` to `build_pstras!.jl`'s output dict,
+      matching the existing `BSMR`/`UTAX` pass-through pattern. Re-ran: full pipeline + full model
+      build now succeeds — **98.0s build, 2,376,562 variables, 1,368,512 constraints, 169 vars-dict
+      entries.** The ~1.01M vars-minus-constraints gap is expected at this stage (not a bug): GEMPACK
+      CGE closures always have more variables than core equations, with the closure (Step 5b) fixing
+      exactly that many variables exogenously to square the system — this hasn't been wired yet.
 - [ ] Audit variable/equation coverage: `build_model!.jl` declares ~168 variable arrays; confirm
       every variable either has a defining equation in `build_equations.jl` or is intentionally left
       for closure (exogenous fix). Gaps here will show up as an under-determined system at solve time
