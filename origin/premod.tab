@@ -1,0 +1,418 @@
+!# Assemble data in TERM format before simulation or aggregation !
+File
+INFILE # Input data File #;
+REGSUPP # Supplementary input data File #;
+ELAST   # Elasticities from national model #;
+(new) DIAG # Diagnostic Output file #;
+(new) NEWSETS # Sets file #;
+
+Set
+ COM    # Commodities # read elements from file INFILE  header "COM";
+ MAR    # Margin coms # read elements from file INFILE  header "MAR";
+ IND    # Industries # read elements from file INFILE  header "IND";
+ OCC    # Skills # read elements from file INFILE  header "OCC";
+ DST    # Regions of use # read elements from file INFILE header "REGD";
+ ORG    # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+Write
+(Set) COM to file NEWSETS header "COM";
+(Set) MAR to file NEWSETS header "MAR";
+(Set) IND to file NEWSETS header "IND";
+(Set) OCC to file NEWSETS header "OCC";
+(Set) DST to file NEWSETS header "REGD";
+(Set) ORG to file NEWSETS header "REGS";
+(Set) PRD to file NEWSETS header "REGP";
+
+Set FINDEM # Final demanders # (Hou, Inv, Gov,  Exp);
+
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+Set USR = IND + FINDEM;
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+
+Coefficient
+(all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d) # MAKE #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d) # Basic flows#;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) TAXES(c,s,u,d) # Comod taxes #;
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) # Sourcing matrix #;
+(all,c,COM)(all,i,IND)(all,d,DST)
+ INVEST(c,i,d) # Investment at purchasers prices #;
+ (all,i,IND)(all,d,DST) STOCKS(i,d) # Domestic inventories #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p)
+ # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+(all,i,IND)(all,o,OCC)(all,d,DST) VLAB(i,o,d) # Wage matrix #;
+(all,i,IND)(all,d,DST) VCAP(i,d) # Rentals to capital #;
+(all,i,IND)(all,d,DST) VLND(i,d) # Rentals to land #;
+(all,i,IND)(all,d,DST) VPTX(i,d) # Taxes on production #;
+(all,i,IND) SIGMA1LAB(i) # CES substitution between skill types #;
+(all,i,IND) SIGMA1PRIM(i) # CES substitution, primary factors #;
+
+Read
+MAKE       from file INFILE header "MAKE";
+USE        from file INFILE header "BSMR";
+TAXES      from file INFILE header "UTAX";
+TRADE      from file INFILE header "TRAD";
+SUPPMAR    from file INFILE header "MARS";
+TRADMAR    from file INFILE header "TMAR";
+INVEST     from file INFILE header "2PUR";
+STOCKS     from file INFILE header "STOK";
+VLAB      from file INFILE header "1LAB";
+VCAP      from file INFILE header "1CAP";
+VLND      from file INFILE header "1LND";
+VPTX      from file INFILE header "1PTX";
+SIGMA1LAB  from file ELAST  header "SLAB";
+SIGMA1PRIM from file ELAST  header "P028";
+
+Assertion
+ # MAKE>=0 # (all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d)>=0;
+ # USE>=0#(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d)>=0;
+ # TRADE>=0 #(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)  TRADE(c,s,r,d)>=0;
+ # INVEST>=0 #(all,c,COM)(all,i,IND)(all,d,DST) INVEST(c,i,d)>=0;
+ # SUPPMAR>=0# (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p)>=0;
+ # TRADMAR>=0 #(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR(c,s,m,r,d)>=0;
+ # V1LAB>=0 #(all,i,IND)(all,o,OCC)(all,d,DST) VLAB(i,o,d)>=0;
+ # V1CAP>=0 #(all,i,IND)(all,d,DST) VCAP(i,d)>=0;
+ # V1LND>=0 #(all,i,IND)(all,d,DST) VLND(i,d)>=0;
+ # SIGMA1LAB>=0 #(all,i,IND) SIGMA1LAB(i)>=0;
+ # SIGMA1PRIM>=0 #(all,i,IND) SIGMA1PRIM(i)>=0;
+
+Coefficient
+ (all,i,IND)(all,d,DST) VLAB_O(i,d)   # Total labour bill in industry i #;
+Formula
+ (all,i,IND)(all,d,DST) VLAB_O(i,d) = sum{o,OCC, VLAB(i,o,d)};
+
+Coefficient
+ (all,i,IND)(all,d,DST) VPRIM(i,d) # Total factor input to industry i#;
+Formula
+ (all,i,IND)(all,d,DST) VPRIM(i,d) = VLAB_O(i,d)+ VCAP(i,d) + VLND(i,d);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+                USRPUR(c,s,u,d) # Purchasers values #;
+(all,c,COM)(all,d,DST)
+                V3PUR_S(c,d) # Household Purchasers values #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USRPUR(c,s,u,d) =
+    USE(c,s,u,d) + TAXES(c,s,u,d);
+(all,c,COM)(all,d,DST)
+                V3PUR_S(c,d) = sum{s,SRC,  USRPUR(c,s,"Hou",d)};
+
+Coefficient
+(all,i,IND)(all,d,DST) COSTS(i,d);
+(all,i,IND) NATCOSTS(i);
+(all,i,IND)(all,d,DST) MAKE_C(i,d);
+(all,i,IND)(all,d,DST) DIFFIND(i,d);
+Formula
+(all,i,IND)(all,d,DST) COSTS(i,d)=
+  VLAB_O(i,d) + VCAP(i,d)+ VLND(i,d)+ VPTX(i,d)
+  + sum{c,COM,sum{s,SRC,USE(c,s,i,d)+ TAXES(c,s,i,d)}};
+(all,i,IND) NATCOSTS(i)=sum{d,DST,COSTS(i,d)};
+(all,i,IND)(all,d,DST) MAKE_C(i,d)=sum{c,COM,MAKE(c,i,d)};
+(all,i,IND)(all,d,DST)
+                 DIFFIND(i,d) =  [COSTS(i,d) - STOCKS(i,d)]- MAKE_C(i,d);
+Write
+ COSTS to file DIAG header "COST";
+ MAKE_C to file DIAG header "MAKC";
+ DIFFIND to file DIAG header "DIND";
+
+Coefficient
+ (all,c,COM)(all,r,ORG) IMPORT(c,r) # Imports, by port of entry #;
+ (all,c,COM) NATIMP(c) # Imports #;
+
+Formula
+ (all,c,COM)(all,r,ORG) IMPORT(c,r)= sum{d,DST,TRADE(c,"imp",r,d)};
+ (all,c,COM) NATIMP(c) = sum{r,ORG,  IMPORT(c,r)};
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) TEMTOTcsd(c,s,d) # Temp total #;
+(all,c,COM)(all,r,ORG)            TEMTOTcr(c,r) # Temp total #;
+(all,m,MAR)(all,r,ORG)(all,d,DST) TEMTOTmrd(m,r,d) # Temp total #;
+
+(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+ TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+
+Formula
+(all,c,COM)(all,d,ORG) MAKE_I(c,d)= 0;
+(all,c,COM)(all,d,REG) MAKE_I(c,d)=sum{i,IND,MAKE(c,i,d)};
+
+! Check various conditions !
+! TRADE + TRADMAR should add to USE !
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTcsd(c,s,d) = sum{u,USR, USE(c,s,u,d)}
+      - sum{r,ORG, TRADE(c,s,r,d)+sum{m,MAR,TRADMAR(c,s,m,r,d) }};
+Write TEMTOTcsd to file DIAG header "CHK1" longname "USE - TRADE- TRADMAR";
+
+! TRADE (imports) should add to IMPORT !
+Formula
+(all,c,COM)(all,r,ORG)
+TEMTOTcr(c,r) = IMPORT(c,r) -sum{d,DST, TRADE(c,"imp",r,d)};
+Write TEMTOTcr to file DIAG header "CHK3" longname "IMPORT - TRADE_D (imp)";
+
+! TRADE(dom)+ SUPPMAR(mar inds)  should add to COSTS : initially false !
+Formula
+(all,c,NONMAR)(all,r,REG)
+  TEMTOTcr(c,r) = MAKE_I(c,r)- sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) TEMTOTcr(m,r) = MAKE_I(m,r)-
+  sum{d,DST, TRADE(m,"dom",r,d) + sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+Write TEMTOTcr to file DIAG header "CHK4" longname "MAKE_I - demands";
+
+! SUPPMAR should add to TRADMAR_CS : initially true!
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTmrd(m,r,d) = TRADMAR_CS(m,r,d) - sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write TEMTOTmrd to file DIAG header "CHK5" longname "TRADMAR_CS - SUPPMAR_P";
+
+! set regional Engel elasticities to national, but scale to average unity !
+Coefficient
+(all,c,COM) NATEPS(c) # DPSV expenditure elasticities #;
+(all,d,DST) V3TOT(d) # Consumption by region #;
+Read NATEPS from file ELAST header "XPEL";
+Coefficient
+(all,c,COM)(all,d,DST) EPS(c,d) # Expenditure elasticities #;
+(all,d,DST) EPSTOT(d) # Average of expenditure elasticities #;
+Formula
+(all,c,COM)(all,d,DST) EPS(c,d) = NATEPS(c);
+(all,d,DST) V3TOT(d) = sum{c,COM,V3PUR_S(c,d)};
+(all,d,DST) EPSTOT(d) = sum{c,COM,V3PUR_S(c,d)* EPS(c,d)}/V3TOT(d);
+(all,c,COM)(all,d,DST) EPS(c,d) = EPS(c,d)/EPSTOT(d);
+
+File (new) OUTFILE # Output file #;
+Write
+(Set) COM to file OUTFILE header "COM";
+(Set) MAR to file OUTFILE header "MAR";
+(Set) IND to file OUTFILE header "IND";
+(Set) OCC to file OUTFILE header "OCC";
+(Set) DST to file OUTFILE header "REGD";
+(Set) ORG to file OUTFILE header "REGS";
+(Set) PRD to file OUTFILE header "REGP";
+
+Write
+MAKE       to file OUTFILE header "MAKE";
+USE        to file OUTFILE header "BSMR";
+TAXES      to file OUTFILE header "UTAX";
+TRADE      to file OUTFILE header "TRAD";
+SUPPMAR    to file OUTFILE header "MARS";
+TRADMAR    to file OUTFILE header "TMAR";
+INVEST     to file OUTFILE header "2PUR";
+STOCKS     to file OUTFILE header "STOK";
+VLAB       to file OUTFILE header "1LAB";
+VCAP       to file OUTFILE header "1CAP";
+VLND       to file OUTFILE header "1LND";
+VPTX       to file OUTFILE header "1PTX";
+SIGMA1LAB  to file OUTFILE header "SLAB";
+SIGMA1PRIM to file OUTFILE header "P028";
+
+Transfer "P015" from file ELAST to file OUTFILE;
+Transfer "DIST" from file INFILE to file OUTFILE;
+
+Coefficient
+(all,c,COM) SIGMADOMDOM(c) # Substitution elast between origins #;
+(all,m,MAR) SIGMAMAR(m)    # Substitution elast between margin origins #;
+(all,d,DST) POP(d)         # Population #;
+Read SIGMADOMDOM from file REGSUPP header "SGDD";
+Read SIGMAMAR    from file REGSUPP header "SMAR";
+Read POP         from file REGSUPP header "PO01";
+
+Write SIGMADOMDOM to file OUTFILE header "SGDD";
+Write SIGMAMAR    to file OUTFILE header "SMAR";
+Write POP         to file OUTFILE header "PO01";
+
+Coefficient  NATFRISCH # National Frisch #;
+Read         NATFRISCH from file ELAST header "P021";
+
+Coefficient (all,d,DST) FRISCH(d) # Frisch LES 'parameter'=  total/luxury) #;
+Formula     (all,d,DST) FRISCH(d) = -ABS[NATFRISCH];
+Write FRISCH to file OUTFILE header "P021";
+
+Write EPS to file OUTFILE header "XPEL";
+
+Coefficient (all,i,IND) SIGMAOUT(i) # CET transformation elasticities #;
+Read  SIGMAOUT from file ELAST header "SCET";
+Write SIGMAOUT to file   OUTFILE header "SCET";
+
+Coefficient (all,c,COM) EXP_ELAST(c) # Export demand elasticities #;
+Read  EXP_ELAST from file ELAST header "P018";
+Write EXP_ELAST to file   OUTFILE header "P018";
+
+File (new) WEIGHTS # Aggregation weights #;
+Coefficient (all,i,IND) NATV1PRIM(i) # Total factor input to industry i #;
+Formula     (all,i,IND) NATV1PRIM(i)=sum{d,DST, VPRIM(i,d)};
+Coefficient (all,i,IND) NATV1LAB_O(i) # Total labour bill in industry i #;
+Formula     (all,i,IND) NATV1LAB_O(i)=sum{d,DST, VLAB_O(i,d)};
+Coefficient (all,o,OCC)(all,d,DST) REGLAB(o,d) # Total labour bill in region d#;
+Formula     (all,o,OCC)(all,d,DST) REGLAB(o,d) = sum{i,IND,VLAB(i,o,d)};
+Coefficient (all,i,IND) NATV1CAP(i) # Total cap rentals in industry i #;
+Formula     (all,i,IND) NATV1CAP(i)=sum{d,DST, VCAP(i,d)};
+Coefficient (all,c,COM) SALE(c) # Total use of good c #;
+Formula     (all,c,COM) SALE(c)
+         = sum{s,SRC,sum{r,ORG,sum{d,DST, TRADE(c,s,r,d)}}};
+Coefficient (all,m,MAR) MARUSE(m) # Total use of margin m #;
+Formula     (all,m,MAR) MARUSE(m)
+         = sum{r,ORG,sum{d,DST,sum{p,PRD, SUPPMAR(m,r,d,p)}}};
+Coefficient (all,c,COM) NATEXPORT(c) # Exports of dom good c #;
+Formula (all,c,COM) NATEXPORT(c) = sum{d,DST, USE(c,"dom","exp",d)};
+
+Write
+V3PUR_S    to file WEIGHTS header "3PUR"; ! for EPS !
+NATV1PRIM  to file WEIGHTS header "1PRM"; ! for SIGMA1PRIM !
+NATV1LAB_O to file WEIGHTS header "LABR"; ! for SIGMA1LAB !
+NATIMP     to file WEIGHTS header "NIMP"; ! for ARMSIGMA !
+NATV1CAP   to file WEIGHTS header "NCAP"; ! for DEP !
+V3TOT      to file WEIGHTS header "3TOT"; ! for FRISCH !
+SALE       to file WEIGHTS header "WSGD"; ! for SIGMADOMDOM, and IsLocCom !
+MARUSE     to file WEIGHTS header "MRUS"; ! for SIGMAMAR !
+NATCOSTS   to file WEIGHTS header "1TOT"; ! for SIGMAOUT !
+NATEXPORT  to file WEIGHTS header "4TOT"; ! for EXP_ELAST !
+REGLAB     to file WEIGHTS header "RLAB"; ! for EMPRAT, ELASTWAGE  !
+
+! Dynamic data !
+File CAPDAT;
+
+Coefficient
+(all,i,IND) NATCAPSTOK(i)  #Current capstok measured in current prices#;
+(all,i,IND) NATDPRC(i)     #Rates of Depreciation (i.e. 0.08)#;
+(all,i,IND) NATRNORMAL(i)  #Normal gross rate of return (SET AS 0.1)#;
+(all,i,IND) NATGROTREND(i) #Trend investment/capital ratio#;
+(all,i,IND) NATQRATIO(i)   #(Max/trend) investment/capital ratio:i.e 4#;
+(all,i,IND) NATALPHA(i)    #Investment elasticity eg, 5#;
+(all,i,IND) NATRORADJ(i)   #ROR Partial adjustment parameter, eg, 0.8 #;
+(all,i,IND) NATGRETEXP(i)  #Expected gross rate of return#;
+            NATEMPRAT      #(Actual/trend) employment:i.e in steady state => 1#;
+            NATELASTWAGE   #Elasticity of wage to employment:i.e. 0.5#;
+Read
+ NATCAPSTOK   from file CAPDAT header "STOK";
+ NATDPRC      from file CAPDAT header "DPRC";
+ NATRNORMAL   from file CAPDAT header "TARG";
+ NATGROTREND  from file CAPDAT header "TFRO";
+ NATQRATIO    from file CAPDAT header "QRAT";
+ NATALPHA     from file CAPDAT header "ALFA";
+ NATRORADJ    from file CAPDAT header "RADJ";
+ NATGRETEXP   from file CAPDAT header "REXP";
+ NATEMPRAT    from file CAPDAT header "EMPR";
+ NATELASTWAGE from file CAPDAT header "ELWG";
+
+Coefficient
+(all,o,OCC) NATEMPRATO(o)  #(Actual/trend) employment:i.e in steady state => 1#;
+(all,o,OCC) NATELSTWAGEO(o)#Elasticity of wage to employment:i.e. 0.5#;
+Formula
+(all,o,OCC) NATEMPRATO(o)  = NATEMPRAT;
+(all,o,OCC) NATELSTWAGEO(o) = NATELASTWAGE;
+Write ! in case we want a national wage adjustment mechanism !
+ NATEMPRATO    to file OUTFILE header "EMPN";
+ NATELSTWAGEO  to file OUTFILE header "ELWN";
+
+Coefficient
+(all,i,IND)(all,d,DST) CAPSTOK(i,d)
+ # Current capstok measured in current prices #;
+(all,i,IND)(all,d,DST) DPRC(i,d)
+ # Rates of Depreciation (i.e. 0.08) #;
+(all,i,IND)(all,d,DST) RNORMAL(i,d)
+ # Normal gross rate of return (SET AS 0.1) #;
+(all,i,IND)(all,d,DST) GROTREND(i,d) # Trend investment/capital ratio #;
+(all,i,IND)(all,d,DST) QRATIO(i,d)
+ # (Max/trend) investment/capital ratio:i.e 4 #;
+(all,i,IND)(all,d,DST) ALPHA(i,d)    # Investment elasticity eg, 5 #;
+(all,i,IND)(all,d,DST) RORADJ(i,d)   #ROR Partial adjustment parameter, eg 0.8#;
+(all,i,IND)(all,d,DST) GRETEXP(i,d)  # Expected gross rate of return #;
+(all,o,OCC)(all,d,DST)            EMPRAT(o,d)
+ # (Actual/trend) employment: in steady state trends to 1 #;
+(all,o,OCC)(all,d,DST)            ELASTWAGE(o,d)
+ # Elasticity of wage to employment:i.e. 0.5 #;
+(all,r,ORG)(all,d,DST) TRADE_CS(r,d) # Aggregated Trade matrix #;
+Formula
+(all,r,ORG)(all,d,DST) TRADE_CS(r,d) = sum{c,COM, sum{s,SRC, TRADE(c,s,r,d)}};
+(all,i,IND)(all,d,DST) CAPSTOK(i,d)  = [VCAP(i,d)/NATV1CAP(i)]*NATCAPSTOK(i);
+(all,i,IND)(all,d,DST) DPRC(i,d)     = NATDPRC(i);
+(all,i,IND)(all,d,DST) RNORMAL(i,d)  = NATRNORMAL(i);
+(all,i,IND)(all,d,DST) GROTREND(i,d) = NATGROTREND(i);
+(all,i,IND)(all,d,DST) QRATIO(i,d)   = NATQRATIO(i);
+(all,i,IND)(all,d,DST) ALPHA(i,d)    = NATALPHA(i);
+(all,i,IND)(all,d,DST) RORADJ(i,d)   = NATRORADJ(i);
+(all,i,IND)(all,d,DST) GRETEXP(i,d)  = NATGRETEXP(i);
+(all,o,OCC)(all,d,DST) EMPRAT(o,d)   = NATEMPRATO(o);
+(all,o,OCC)(all,d,DST) ELASTWAGE(o,d)= NATELSTWAGEO(o);
+Write
+ CAPSTOK   to file WEIGHTS header "STOC";
+ CAPSTOK   to file OUTFILE header "STOC"; ! to avoid clash !
+ DPRC      to file OUTFILE header "DPRC";
+ RNORMAL   to file OUTFILE header "TARG";
+ GROTREND  to file OUTFILE header "TFRO";
+ QRATIO    to file OUTFILE header "QRAT";
+ ALPHA     to file OUTFILE header "ALFA";
+ RORADJ    to file OUTFILE header "RADJ";
+ GRETEXP   to file OUTFILE header "REXP";
+ EMPRAT    to file OUTFILE header "EMPR";
+ ELASTWAGE to file OUTFILE header "ELWG";
+ TRADE_CS  to file WEIGHTS header "ATRD";
+Set WAGGSET # Headers for weighted aggregation # (SLAB@@@@LABR, P028@@@@1PRM,
+P015@@@@NIMP, P021@@@@3TOT, XPEL@@@@3PUR, SGDD@@@@WSGD,
+SMAR@@@@MRUS, P018@@@@4TOT, SCET@@@@1TOT, DIST@@@@ATRD,
+! extra for dynamic extension !
+DPRC@@@@STOC,
+TARG@@@@STOC,
+TFRO@@@@STOC,
+QRAT@@@@STOC,
+ALFA@@@@STOC,
+RADJ@@@@STOC,
+REXP@@@@STOC,
+EMPR@@@@RLAB,
+ELWG@@@@RLAB,
+! for topdown !
+LCOM@@@@WSGD
+);
+Write (Set) WAGGSET to file WEIGHTS header "WAGG";
+
+! This part enables disaggregated region results to be computed via "top-down"
+in the main model TAB !
+
+Coefficient
+(parameter)(all,c,COM) IsLocCom(c)
+ # Flag for top-down extension, 1 for local coms, else 0 #;
+Read IsLocCom from file CAPDAT header "LCOM";
+! note: CAPDAT happens to be NATIONAL.HAR !
+Write IsLocCom to file OUTFILE header "LCOM"
+   longname "Flag for top-down extension, 1 for local coms, else 0";
+
+Set RGNX # Full list of Municipality/districts # = REG;
+Write (Set) RGNX to file OUTFILE header "RGN";
+Coefficient (all,z,RGNX)(all,r,REG) RGNMAP(z,r)
+   # RGNX to REG mapping matrix; >0 iff z is in r #;
+Formula (all,z,RGNX)(all,r,REG) RGNMAP(z,r) = 0;
+ (all,z,RGNX) RGNMAP(z,z) = 1;
+Write RGNMAP to file OUTFILE header "MRGN";
+
+Coefficient (all,r,REG) SPLITREG(r) # Flag to split into Sub-regions iff >0 #;
+Formula  (all,r,REG) SPLITREG(r) = 1;
+Write SPLITREG to file OUTFILE header "SREG";
+
+Set SEC = COM intersect IND;
+Coefficient (all,i,IND) LOCPRIM(i)
+ # Flag: for local industries, shows national value-added; 0 for non-local #;
+Formula (all,i,IND) LOCPRIM(i) = 0;
+Formula (all,s,SEC) LOCPRIM(s) =  IsLocCom(s)*NATV1PRIM(s);
+Write LOCPRIM to file OUTFILE header "LOCI";
+
+! the following are the only regional "shares" needed. Note that they need not 
+add to the corresponding numbers in the main database !
+Coefficient (all,i,IND)(all,z,RGNX) RGNVTOT(i,z) # District outputs or Val-Add#;
+Formula     (all,i,IND)(all,z,RGNX) RGNVTOT(i,z) = VPRIM(i,z);
+Write RGNVTOT to file OUTFILE header "MVTO";
+
+! to assist with top-down to original regions -- not currently needed !
+Coefficient (all,c,COM)(all,i,IND)(all,o,RGNX) MAKEO(c,i,o)
+  # MAKE matrix, original regions (for top-down) #;
+Formula (all,c,COM)(all,i,IND)(all,o,RGNX) MAKEO(c,i,o) = MAKE(c,i,o);
+Write MAKEO to file OUTFILE header "MAKO";
+
+! End file !

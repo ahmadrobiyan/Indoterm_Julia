@@ -1,0 +1,9 @@
+! This is a template STI file: you will need to edit or remove the condensation instructions
+BAT         ! causes stop if an error
+            ! no more options
+chkras      ! name of TAB file
+            ! same name for INF
+a           ! automatic code generation
+wfp         ! either PGS (for GEMSIM code) or WFP (for FORTRAN code)
+            ! no more options
+chkras      ! name of program to be created

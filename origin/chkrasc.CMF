@@ -1,0 +1,8 @@
+auxiliary files = chkras;
+File INFILE = raslin.har;
+File DIAG = dgchkrasc.HAR;
+log file = yes ; 
+check-on-read all = no ;
+
+
+

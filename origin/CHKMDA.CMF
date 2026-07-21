@@ -1,0 +1,9 @@
+auxiliary files = chkmod;
+File     INFILE = premod.HAR;
+File     SETS   = ORGSETS.HAR;
+File     DIAG   = dgchkmdA.HAR;
+!File NEWSETS = BIGSETS.HAR;
+log file        = yes ; 
+check-on-read all = no ;
+
+

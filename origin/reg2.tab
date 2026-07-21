@@ -1,0 +1,585 @@
+!# Construct trial trade matrices for later RASsing !
+!# Input files: reg1.har regsupp.har !
+!# Output file: reg2.HAR !
+!# Use following headers from REGSUPP: !
+!#  DISTFAC header "DFAC"; !
+!#  Set LOCAL # Truly local commodities #  header "RLOC";!
+!#  Set DMAR # Distance related margins #  header "DMAR";!
+!#  MARWGT header "MWGT";!
+!#  LOCMAR(m) # tendency for margin to be locally sourced # header "LMAR";!
+
+Zerodivide off;
+File
+ INFILE # Input data File #;
+ REGSUPP # Supplementary input data File #;
+(new) DIAG # Diagnostic Output file #;
+
+Set
+ COM # Commodities # read elements from file INFILE  header "COM";
+ MAR # Margin coms # read elements from file INFILE  header "MAR";
+ IND # Industries # read elements from file INFILE  header "IND";
+ OCC # Skills # read elements from file INFILE  header "OCC";
+ DST # Regions of use # read elements from file INFILE header "REGD";
+ ORG # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+Set FINDEM # Final demanders #  (Household, Investment, GovFinal,  Exports);
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+Set USR = IND + FINDEM;
+Set FACTOR # Description # (Labour, Capital, Land, ProdTax);
+
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+
+Coefficient DEFREGSHR # 1/[No of regions] = default regional share #;
+Formula     DEFREGSHR = 1/[sum{r,ORG,1}];
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d) # Basic flows#;
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d)# Margins #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d)
+          # Basic + margin flows#;
+Read
+ BASIC_U from file INFILE header "BSCU";
+ MARGINS_U from file INFILE header "MRGU";
+ USE from file INFILE header "BSMR";
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) ALLDEMAND(c,s,d) # Demand for commodities#;
+(all,c,COM)(all,s,SRC)(all,d,ORG) ALLSUPPLY(c,s,d) # Supply of commodities #;
+Read
+ ALLDEMAND from file INFILE header "ADEM";
+ ALLSUPPLY from file INFILE header "ASUP";
+
+Assertion # Check MARGINS_U=0 when BASIC_U(c,s,d)=0 #
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST:BASIC_U(c,s,d)=0)
+MARGINS_U(c,s,m,d)=0;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) TAXES(c,s,u,d);
+(all,i,IND)(all,d,DST) STOCKS(i,d) # Domestic inventories #;
+(all,i,IND)(all,g,FACTOR)(all,d,DST) FAC(i,g,d) # IO factor costs #;
+(all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d) # MAKE matrix #;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) # Sourcing matrix #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p)
+ # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+
+Read
+ FAC from file INFILE header "FACT";
+ TAXES from file INFILE header "UTAX";
+ MAKE from file INFILE header "MAKE";
+ STOCKS from file INFILE header "STOK";
+
+Coefficient
+(all,i,IND)(all,d,DST) COSTS(i,d);
+(all,i,IND)(all,d,DST) MAKE_C(i,d);
+(all,i,IND)(all,d,DST) DIFFIND(i,d);
+Formula
+(all,i,IND)(all,d,DST) COSTS(i,d)= sum{g,FACTOR, FAC(i,g,d)}
+ + sum{c,COM,sum{s,SRC,USE(c,s,i,d)+ TAXES(c,s,i,d)}};
+
+(all,i,IND)(all,d,DST) MAKE_C(i,d)=sum{c,COM,MAKE(c,i,d)};
+(all,i,IND)(all,d,DST)
+                 DIFFIND(i,d) =  [COSTS(i,d) - STOCKS(i,d)]- MAKE_C(i,d);
+Write
+ COSTS to file DIAG header "COST";
+ MAKE_C to file DIAG header "MAKC";
+ DIFFIND to file DIAG header "DIND";
+
+Coefficient (all,c,COM)(all,r,ORG) IMPORT(c,r) # Imports, by port of entry #;
+Read IMPORT from file INFILE header "IMPS";
+
+Coefficient
+(all,m,MAR)(all,d,DST) MARDEMAND(m,d) # Total margin use #;
+(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) SUPPRATIO(c,s,d) # SUPP/DEM ratio #;
+(all,c,COM)(all,s,SRC)(all,d,DST) OWNSHARE(c,s,d)
+   # Proportion of demand sourced locally #;
+(all,c,COM)(all,s,SRC)(all,d,DST) OTHSHARE(c,s,d)
+   # Proportion of demand sourced non-locally #;
+(all,c,COM)(all,s,SRC)(all,d,REG) DIFFCOM(c,s,d)# ALLSUPPLY - ALLDEMAND #;
+Formula
+(all,m,MAR)(all,d,DST) MARDEMAND(m,d) =
+          sum{c,COM,sum{s,SRC, MARGINS_U(c,s,m,d)}};
+(all,c,COM)(all,s,SRC)(all,d,DST) ALLDEMAND(c,s,d)=BASIC_U(c,s,d);
+(all,m,MAR)(all,d,DST)
+        ALLDEMAND(m,"dom",d)=ALLDEMAND(m,"dom",d)+MARDEMAND(m,d);
+(all,c,COM)(all,d,ORG) MAKE_I(c,d)= 0; ! avoid warning !
+(all,c,COM)(all,d,REG) MAKE_I(c,d)=sum{i,IND,MAKE(c,i,d)};
+(all,c,COM)(all,s,SRC)(all,d,ORG) ALLSUPPLY(c,s,d)=0;
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"dom",d)=MAKE_I(c,d);
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"imp",d)=IMPORT(c,d);
+(all,c,COM)(all,s,SRC)(all,d,REG)
+      DIFFCOM(c,s,d) = ALLSUPPLY(c,s,d) - ALLDEMAND(c,s,d);
+
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) SUPPRATIO(c,s,d) = 0; !avoid warning!
+(all,c,COM)(all,s,SRC)(all,d,REG:ALLDEMAND(c,s,d)>0)
+  SUPPRATIO(c,s,d) = ALLSUPPLY(c,s,d)/ALLDEMAND(c,s,d);
+
+Coefficient
+ (all,r,ORG)(all,d,DST) DISTANCE(r,d) # Normalized distance from r to d #;
+ (all,c,COM)(all,s,SRC) DISTFAC(c,s) # Distance factor for gravity formula #;
+! DISTFAC might be 2 for goods hard or unlikely to transport, normally 1 !
+Read
+ DISTANCE from file INFILE header "DIST"; ! already normalized and checked !
+ DISTFAC  from file REGSUPP header "DFAC";
+Write DISTANCE to file DIAG header "DIST";
+
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) OWNSHARE(c,s,d)= SUPPRATIO(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST: OWNSHARE(c,s,d)>1) OWNSHARE(c,s,d)=1;
+(all,c,COM)(all,s,SRC)(all,d,DST) OWNSHARE(c,s,d)=
+            OWNSHARE(c,s,d)*[1 - (0.2^DISTFAC(c,s))];
+(all,c,COM)(all,s,SRC)(all,d,DST) OTHSHARE(c,s,d) = 1 - OWNSHARE(c,s,d);
+Write
+ MARDEMAND to file DIAG header "MARD";
+ ALLDEMAND to file DIAG header "ADEM";
+ ALLSUPPLY to file DIAG header "ASUP";
+ MAKE_I to file DIAG header "MAKI";
+ DIFFCOM to file DIAG header "DCOM";
+ OWNSHARE to file DIAG header "OSHR";
+ SUPPRATIO to file DIAG header "SPRT";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+           SOURCESHR(c,s,r,d) # Share, of c to d, which comes from r #;
+(all,c,COM)(all,s,SRC)(all,d,DST) TEMTOTCSD(c,s,d) # Temp total #;
+(all,c,COM)(all,r,ORG)            TEMTOTCR(c,r) # Temp total #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) TEMTOTCSMD(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) TEMTOTMRD(m,r,d) # Temp total #;
+(all,m,MAR)(all,r,ORG)(all,d,DST) SCALEMRD(m,r,d) # Scale factor #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   SOURCESHR(c,s,r,d) = [ALLSUPPLY(c,s,r)^0.5]/[DISTANCE(r,d)^DISTFAC(c,s)];
+(all,c,COM)(all,s,SRC)(all,q,REG)
+   SOURCESHR(c,s,q,q) = OWNSHARE(c,s,q);
+
+! scale off-diag shares to sum to OTHSHARE !
+(all,c,COM)(all,s,SRC)(all,d,DST) TEMTOTCSD(c,s,d) = 0; ! avoid warning !
+(all,c,COM)(all,s,SRC)(all,d,REG)
+         TEMTOTCSD(c,s,d) = sum{r,ORG: r<>d, SOURCESHR(c,s,r,d)};
+
+(all,c,COM)(all,s,SRC)(all,r,REG)(all,d,DST:r<>d and (TEMTOTCSD(c,s,d)<>0))
+ SOURCESHR(c,s,r,d) = SOURCESHR(c,s,r,d)*OTHSHARE(c,s,d)/TEMTOTCSD(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,REG)(all,d,DST:r<>d and (TEMTOTCSD(c,s,d)=0))
+         SOURCESHR(c,s,r,d) = 0;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = SOURCESHR(c,s,r,d)*BASIC_U(c,s,d);
+Write SOURCESHR to file DIAG header "SSRA"
+longname "SOURCESHR from gravity formula";
+Write TRADE to file DIAG header "TRDA"
+longname "TRADE from gravity formula";
+
+Formula
+! deficit regions export little to surplus regions !
+(all,c,COM)(all,s,SRC)(all,r,REG!ORG!: ALLDEMAND(c,s,r)> ALLSUPPLY(c,s,r))
+(all,d,REG!DST! : ALLDEMAND(c,s,d) < ALLSUPPLY(c,s,d))
+   SOURCESHR(c,s,r,d) = 0.1*SOURCESHR(c,s,r,d);
+! scale shares to sum to 1 !
+(all,c,COM)(all,s,SRC)(all,d,DST)
+         TEMTOTCSD(c,s,d) = sum{r,ORG, SOURCESHR(c,s,r,d)};
+
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST:TEMTOTCSD(c,s,d)<>0)
+         SOURCESHR(c,s,r,d) = SOURCESHR(c,s,r,d)/TEMTOTCSD(c,s,d);
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = SOURCESHR(c,s,r,d)*BASIC_U(c,s,d);
+Write SOURCESHR to file DIAG header "SSRB"
+longname "SOURCESHR after:  deficit regions export little to surplus regions";
+Write TRADE to file DIAG header "TRDB"
+longname "TRADE after:  deficit regions export little to surplus regions";
+
+Set LOCAL # Truly local commodities #
+       read elements from file REGSUPP header "RLOC";
+Subset LOCAL is subset of COM;
+Formula
+(all,c,LOCAL)(all,r,ORG)(all,d,DST)
+              SOURCESHR(c,"dom",r,d) = SOURCESHR(c,"dom",r,d)*0.01;
+(all,c,LOCAL)(all,q,REG)                    SOURCESHR(c,"dom",q,q) = 1;
+! scale shares to sum to 1 !
+(all,c,COM)(all,s,SRC)(all,d,DST)
+         TEMTOTCSD(c,s,d) = sum{r,ORG, SOURCESHR(c,s,r,d)};
+
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST:TEMTOTCSD(c,s,d)<>0)
+         SOURCESHR(c,s,r,d) = SOURCESHR(c,s,r,d)/TEMTOTCSD(c,s,d);
+
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = SOURCESHR(c,s,r,d)*BASIC_U(c,s,d);
+Write SOURCESHR to file DIAG header "SSRC"
+longname "SOURCESHR after:  Truly local commodities";
+Write TRADE to file DIAG header "TRDC"
+longname "TRADE after:  Truly local commodities";
+![[!
+! prevent deficit regions exporting to many other places [currently inactive] !
+Coefficient 
+ (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) DESTSHR(c,s,r,d)
+   # Share, of exports of c from r, which goes to d #;
+Zerodivide default DEFREGSHR;
+Formula ! work out regional exports !
+(all,c,COM)(all,s,SRC)(all,r,REG!SRC!)
+         TEMTOTCSD(c,s,r) = sum{d,DST: r<>d, TRADE(c,s,r,d)};
+ (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) DESTSHR(c,s,r,d)=42;
+ (all,c,COM)(all,s,SRC)(all,r,REG!SRC!)(all,d,DST:TEMTOTCSD(c,s,r)>0 )
+  DESTSHR(c,s,r,d)=TRADE(c,s,r,d)/TEMTOTCSD(c,s,r);
+Zerodivide off;
+Write DESTSHR to file DIAG header "DEST";
+Formula 
+(all,c,COM)(all,s,SRC)(all,r,REG: ALLDEMAND(c,s,r)> ALLSUPPLY(c,s,r))
+(all,d,REG : (r<>d) and (DESTSHR(c,s,r,d) < 0.05))
+   SOURCESHR(c,s,r,d) = 0; !]]!
+
+! scale shares to sum to 1 !
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+         TEMTOTCSD(c,s,d) = sum{r,ORG, SOURCESHR(c,s,r,d)};
+Zerodivide default DEFREGSHR;
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         SOURCESHR(c,s,r,d) = SOURCESHR(c,s,r,d)/TEMTOTCSD(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = SOURCESHR(c,s,r,d)*BASIC_U(c,s,d);
+Write SOURCESHR to file DIAG header "SSRD"
+longname "SOURCESHR after: deficit regions do not export to many other places";
+Write TRADE to file DIAG header "TRDD"
+longname "TRADE after: deficit regions do not export to many other places";
+
+![ [!  ! ***************optional, reduce cross-hauling by 95% **************!
+Set CH # commodities for which cross-hauling is to be reduced # = COM; !for now!
+Coefficient
+ (all,c,CH)(all,s,SRC)(all,r,ORG)(all,d,DST) CROSS(c,s,r,d) # cross-hauling #;
+Formula
+ (all,c,CH)(all,s,SRC)(all,r,REG)(all,d,REG)
+    CROSS(c,s,r,d) = 0.95*MIN[TRADE(c,s,r,d),TRADE(c,s,d,r)];
+ (all,c,CH)(all,s,SRC)(all,r,REG) CROSS(c,s,r,r) = 0;
+! note CROSS is symmetric !
+(all,c,CH)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = TRADE(c,s,r,d) - CROSS(c,s,r,d);
+(all,c,CH)(all,s,SRC)(all,r,REG) 
+         TRADE(c,s,r,r) = TRADE(c,s,r,r) + sum{d,DST, CROSS(c,s,r,d)};
+! recompute source shares !
+ (all,c,CH)(all,s,SRC)(all,d,DST)
+         TEMTOTCSD(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+Zerodivide default DEFREGSHR;
+Formula (all,c,CH)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         SOURCESHR(c,s,r,d) = TRADE(c,s,r,d)/TEMTOTCSD(c,s,d);
+Write CROSS to file DIAG header "CRS0" longname "initial cross-hauling";
+Formula
+ (all,c,CH)(all,s,SRC)(all,r,REG)(all,d,REG)
+    CROSS(c,s,r,d) = 0.95*MIN[TRADE(c,s,r,d),TRADE(c,s,d,r)];
+ (all,c,CH)(all,s,SRC)(all,r,REG) CROSS(c,s,r,r) = 0;
+Write
+ CROSS to file DIAG header "CRS1" longname "corrected cross-hauling";
+ TRADE to file DIAG header "TRDE" longname "TRADE after: reduce cross-hauling";
+!] ]!  ! ***************end optional section**************!
+
+![[!   If you wanted to read in your own TRADE matrix,
+       you could do it here as follows
+Read TRADE from file REGSUPP header "TRAD";
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+       TEMTOTCSD(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+Zerodivide default DEFREGSHR;
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         SOURCESHR(c,s,r,d) = TRADE(c,s,r,d)/TEMTOTCSD(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) = SOURCESHR(c,s,r,d)*BASIC_U(c,s,d);
+Zerodivide OFF;
+Write SOURCESHR to file DIAG header "SSRT"
+longname "SOURCESHR after reading in TRADE matrix";
+Write TRADE to file DIAG header "TRDR"
+longname "TRADE after reading in and scaling to BASIC_U";
+!]]!
+
+Assertion # TRADE(c,s,r,d)>=0 #
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) TRADE(c,s,r,d) >=0;
+
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+       TEMTOTCSD(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+
+Assertion # When BASIC_U(c,s,d)=0, TRADE_R(c,s,d)=0 #
+(all,c,COM)(all,s,SRC)(all,d,DST:BASIC_U(c,s,d)=0)
+         TEMTOTCSD(c,s,d) = 0;
+Assertion # When BASIC_U(c,s,d)>0, TRADE_R(c,s,d)>0 #
+(all,c,COM)(all,s,SRC)(all,d,DST:BASIC_U(c,s,d)>0)
+         TEMTOTCSD(c,s,d) > 0;
+
+Set DMAR # Distance related margins #
+read elements from file REGSUPP header "DMAR";
+Subset DMAR is subset of MAR;
+
+Coefficient (all,r,ORG)(all,m,MAR) MARWGT(r,m) # Margin weighting: REG*MAR #;
+! island origin will use more ship margin !
+Read MARWGT from file REGSUPP header "MWGT";
+! Note: MARWGT acts on both ORG and DST: DST action is in REG1.TAB !
+! Ensure MARWGT>=0.01 !
+Formula (all,r,ORG)(all,m,MAR) MARWGT(r,m)= MAX[0.01,MARWGT(r,m)];
+Formula! below ...provisional !
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST) ! all MAR !
+ TRADMAR(c,s,m,r,d) = MARWGT(r,m)*SOURCESHR(c,s,r,d)*MARGINS_U(c,s,m,d);
+(all,c,COM)(all,s,SRC)(all,m,DMAR)(all,r,ORG)(all,d,DST) ! DMAR only !
+! Usage of distance related margins follows square root of distance !
+ TRADMAR(c,s,m,r,d) = TRADMAR(c,s,m,r,d)*[DISTANCE(r,d)^0.5];
+
+ 
+Assertion # TRADMAR>=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST) TRADMAR(c,s,m,r,d) >= 0;
+Assertion # MARGINS_U>=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d) >= 0;
+
+Assertion # TRADMAR=0 if TRADE=0 # (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)
+     (all,d,DST:TRADE(c,s,r,d)=0) TRADMAR(c,s,m,r,d) =0;
+
+
+
+Formula (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTCSMD(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+
+Assertion # Check all TRADMAR=0 when MARGINS_U=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST:  MARGINS_U(c,s,m,d) =0)
+      TEMTOTCSMD(c,s,m,d) =0;
+Assertion # Check some TRADMAR>0 when MARGINS_U>0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST:  MARGINS_U(c,s,m,d) >0)
+      TEMTOTCSMD(c,s,m,d)>0;
+
+Zerodivide off;
+
+! SCALEcsmd TRADMAR to add to MARGINS_U !
+
+Formula (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+   TEMTOTCSMD(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+
+Write
+ TEMTOTCSMD to file DIAG header "AAA1";
+ TRADMAR    to file DIAG header "AAA2";
+ MARGINS_U  to file DIAG header "AAA3";
+
+Formula
+
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST:TEMTOTCSMD(c,s,m,d)<>0)
+TRADMAR(c,s,m,r,d) =TRADMAR(c,s,m,r,d)*[MARGINS_U(c,s,m,d)/TEMTOTCSMD(c,s,m,d)];
+!(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST:TEMTOTCSMD(c,s,m,d)=0)
+TRADMAR(c,s,m,r,d) = 0;!
+
+! Check MARGINS_U=0 when all TRADMAR=0 !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTCSMD(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+
+Write
+ TEMTOTCSMD to file DIAG header "BBB1";
+ TRADMAR    to file DIAG header "BBB2";
+ MARGINS_U  to file DIAG header "BBB3";
+
+! failed : !
+Assertion # Check MARGINS_U=0 when TRADMAR=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST: TEMTOTCSMD(c,s,m,d)=0)
+         MARGINS_U(c,s,m,d) =0;
+
+Coefficient (all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+Formula (all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+! NEXT TO AVOID WARNING !
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p) =0;
+(all,m,MAR)(all,r,REG)(all,d,DST)(all,p,REG)
+    SUPPMAR(m,r,d,p) =
+  0.5*[SOURCESHR(m,"dom",p,d)+ SOURCESHR(m,"dom",p,r)]*TRADMAR_CS(m,r,d);
+
+! We would expect that some margins (eg, retail) would be mainly sourced
+  in the region where good is used -- For these goods set LOCMAR to, say, 5.
+  Otherwise, set LOCMAR=1 !
+Coefficient (all,m,MAR) LOCMAR(m) # Tendency for margin to be locally sourced #;
+Read LOCMAR from file REGSUPP header "LMAR";
+! Ensure LOCMAR>=1 !
+Formula (all,m,MAR) LOCMAR(m) = MAX[1.0,LOCMAR(m)];
+(all,m,MAR)(all,r,ORG)(all,q,REG) SUPPMAR(m,r,q,q) = LOCMAR(m)*SUPPMAR(m,r,q,q);
+! zero out SUPPMAR where region does not produce margin m !
+(all,m,MAR)(all,p,REG:MAKE_I(m,p)=0)(all,r,ORG)(all,d,DST) SUPPMAR(m,r,d,p)=0.0;
+
+! ensure that Sum{r,ORG,sum{d,DST,SUPPMAR(m,r,d,p)}} does not exceed MAKE_I(m,p) !
+Coefficient  (all,m,MAR)(all,p,PRD) TTMP(m,p) # temp tot #;
+Coefficient  (all,m,MAR)(all,p,PRD) TMUL(m,p) # scale #;
+Formula   (all,m,MAR)(all,p,PRD) TTMP(m,p) =Sum{r,ORG,sum{d,DST,SUPPMAR(m,r,d,p)}};
+ (all,m,MAR)(all,p,PRD) TMUL(m,p) = 1;
+ (all,m,MAR)(all,p,REG:TTMP(m,p)>0) TMUL(m,p) = MAKE_I(m,p)/TTMP(m,p);
+ (all,m,MAR)(all,p,PRD) TMUL(m,p) = MIN[1,TMUL(m,p)];
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+     SUPPMAR(m,r,d,p) = TMUL(m,p)*SUPPMAR(m,r,d,p);
+Write TMUL to file DIAG header "TMUL";
+
+
+! scale SUPPMAR  to add to TRADMAR_CS !
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTMRD(m,r,d) = sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write
+ TEMTOTMRD  to file DIAG header "T001";
+ SUPPMAR    to file DIAG header "T002";
+ TRADMAR_CS to file DIAG header "T003";
+ MARGINS_U  to file DIAG header "T004";
+
+Assertion # Assertion no 1 #
+(all,m,MAR)(all,r,ORG)(all,d,DST: TEMTOTMRD(m,r,d) = 0)
+  TRADMAR_CS(m,r,d) = 0;
+Zerodivide default 1;
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         SCALEMRD(m,r,d) = TRADMAR_CS(m,r,d)/TEMTOTMRD(m,r,d);
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+ SUPPMAR(m,r,d,p) = SUPPMAR(m,r,d,p)*SCALEMRD(m,r,d);
+Zerodivide off;
+
+File (new) OUTFILE # Output file #;
+Write
+(Set) COM to file OUTFILE header "COM";
+(Set) MAR to file OUTFILE header "MAR";
+(Set) IND to file OUTFILE header "IND";
+(Set) OCC to file OUTFILE header "OCC";
+(Set) DST to file OUTFILE header "REGD";
+(Set) ORG to file OUTFILE header "REGS";
+(Set) PRD to file OUTFILE header "REGP";
+
+Write
+ TRADMAR to file OUTFILE header "TMAR";
+ TRADE to file OUTFILE header "TRAD";
+ SUPPMAR to file OUTFILE header "MARS";
+ USE to file OUTFILE header "BSMR";
+
+ BASIC_U to file OUTFILE header "BSCU";
+ MARGINS_U to file OUTFILE header "MRGU";
+ IMPORT to file OUTFILE header "IMPS";
+ MAKE to file OUTFILE header "MAKE";
+ MAKE_I to file OUTFILE header "COST";
+ STOCKS to file OUTFILE header "STOK";
+
+Transfer "2PUR" from file INFILE to file OUTFILE;
+Transfer "DIST" from file INFILE to file OUTFILE;
+
+Coefficient
+(all,i,IND)(all,o,OCC) OCCSHR(i,o) # Occ shares for splitting wage vector #;
+Read OCCSHR from file INFILE header "OSHR";
+
+Coefficient
+ (all,i,IND)(all,o,OCC)(all,d,DST) V1LAB(i,o,d) # Wage matrix #;
+ (all,i,IND)(all,d,DST)            V1LAB_O(i,d) # Wage matrix #;
+ (all,i,IND)(all,d,DST)            V1CAP(i,d)   # Rentals to capital #;
+ (all,i,IND)(all,d,DST)            V1LND(i,d)   # Rentals to land #;
+ (all,i,IND)(all,d,DST)            V1PTX(i,d)   # Taxes on production #;
+Formula
+(all,i,IND)(all,d,DST)             V1LAB_O(i,d) = FAC(i,"Labour",d);
+(all,i,IND)(all,d,DST)             V1CAP(i,d)   = FAC(i,"Capital",d);
+(all,i,IND)(all,d,DST)             V1LND(i,d)   = FAC(i,"Land",d);
+(all,i,IND)(all,d,DST)             V1PTX(i,d)   = FAC(i,"ProdTax",d);
+(all,i,IND)(all,o,OCC)(all,d,DST)  V1LAB(i,o,d) = OCCSHR(i,o)*V1LAB_O(i,d);
+
+Write
+V1LAB to file OUTFILE header "1LAB";
+V1CAP to file OUTFILE header "1CAP";
+V1LND to file OUTFILE header "1LND";
+V1PTX to file OUTFILE header "1PTX";
+TAXES to file OUTFILE header "UTAX";
+! Check various conditions before RAS, make sure scaling is possible !
+! TRADE should add to BASIC_U : we expect initially to be true [all zero] !
+Zerodivide default 0;
+
+Assertion # Check TRADMAR = 0 where TRADE=0 #
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST: TRADE(c,s,r,d)=0)
+(all,m,MAR) TRADMAR(c,s,m,r,d)=0;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTCSD(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+Assertion # Check BASIC_U=0 when TRADE=0 #
+(all,c,COM)(all,s,SRC)(all,d,DST : TEMTOTCSD(c,s,d) = 0) BASIC_U(c,s,d)=0;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTCSD(c,s,d) = BASIC_U(c,s,d)- TEMTOTCSD(c,s,d);
+Write TEMTOTCSD to file DIAG header "CHK1" longname "BASIC_U - TRADE_R";
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTCSD(c,s,d) = BASIC_U(c,s,d)/[sum{r,ORG, TRADE(c,s,r,d)}];
+Write TEMTOTCSD to file DIAG header "CKR1" longname "BASIC_U / TRADE_R";
+
+! margins should add to MARGINS_U : we expect initially to be true [all zero] !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTCSMD(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+Assertion # Check MARGINS_U=0 when TRADMAR=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST: TEMTOTCSMD(c,s,m,d)=0)
+         MARGINS_U(c,s,m,d) =0;
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTCSMD(c,s,m,d) = MARGINS_U(c,s,m,d) - TEMTOTCSMD(c,s,m,d);
+Write TEMTOTCSMD to file DIAG header "CHK2" longname "MARGINS_U - TRADMAR_R";
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTCSMD(c,s,m,d) = MARGINS_U(c,s,m,d) /[sum{r,ORG, TRADMAR(c,s,m,r,d)}];
+Write TEMTOTCSMD to file DIAG header "CKR2" longname "MARGINS_U / TRADMAR_R";
+
+! TRADE (imports) should add to IMPORT: initially false,
+            although Sum-over-REG of diffs = 0!
+Formula
+(all,c,COM)(all,r,ORG)
+TEMTOTCR(c,r) = sum{d,DST, TRADE(c,"imp",r,d)};
+Assertion # Assertion near line 316 #
+  (all,c,COM)(all,r,ORG: TEMTOTCR(c,r)=0) IMPORT(c,r)=0;
+Formula
+(all,c,COM)(all,r,ORG)
+TEMTOTCR(c,r) = IMPORT(c,r) -TEMTOTCR(c,r);
+Write TEMTOTCR to file DIAG header "CHK3" longname "IMPORT - TRADE_D (imp)";
+Formula
+(all,c,COM)(all,r,ORG)
+TEMTOTCR(c,r) = IMPORT(c,r) /[sum{d,DST, TRADE(c,"imp",r,d)}];
+Write TEMTOTCR to file DIAG header "CKR3" longname "IMPORT / TRADE_D (imp)";
+
+! TRADE(dom)+ SUPPMAR(mar inds)  should add to COSTS : initially false !
+Formula
+(all,c,COM)(all,r,REG)
+  TEMTOTCR(c,r) = sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) TEMTOTCR(m,r) = TEMTOTCR(m,r)
+                 + sum{d,DST,sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+Assertion # Assertion near line 332 #
+  (all,c,COM)(all,r,ORG: TEMTOTCR(c,r)=0) MAKE_I(c,r)=0;
+Formula
+(all,c,COM)(all,r,REG)
+  TEMTOTCR(c,r) = MAKE_I(c,r)- TEMTOTCR(c,r);
+Write TEMTOTCR to file DIAG header "CHK4" longname "COSTS - demands";
+Formula
+(all,c,COM)(all,r,REG)
+  TEMTOTCR(c,r) = sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) TEMTOTCR(m,r) = TEMTOTCR(m,r)
+                 + sum{d,DST,sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+(all,c,COM)(all,r,REG)
+  TEMTOTCR(c,r) = MAKE_I(c,r)/TEMTOTCR(c,r);
+Write TEMTOTCR to file DIAG header "CKR4" longname "COSTS / demands";
+
+! SUPPMAR should add to TRADMAR_CS : initially true!
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTMRD(m,r,d) =  sum{p,PRD,SUPPMAR(m,r,d,p)};
+Assertion # Assertion near line 345 #
+  (all,m,MAR)(all,r,ORG)(all,d,DST: TEMTOTMRD(m,r,d)=0)
+                     TRADMAR_CS(m,r,d) = 0;
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTMRD(m,r,d) = TRADMAR_CS(m,r,d) - TEMTOTMRD(m,r,d);
+Write TEMTOTMRD to file DIAG header "CHK5" longname "TRADMAR_CS - SUPPMAR_P";
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTMRD(m,r,d) = TRADMAR_CS(m,r,d) /sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write TEMTOTMRD to file DIAG header "CKR5" longname "TRADMAR_CS / SUPPMAR_P";
+
+Zerodivide off;
+
+! end !

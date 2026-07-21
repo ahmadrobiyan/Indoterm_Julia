@@ -1,0 +1,20 @@
+! This is a template STI file: you will need to edit or remove the condensation instructions
+BAT         ! causes stop if an error
+            ! no more options
+RASLIN      ! name of TAB file
+            ! same name for INF
+c           ! Condensation instructions -- remove or edit
+s  
+vTRADE ! COM*SRC*REGSRC*REGDST
+E_vTRADE
+s
+vSUPPMAR ! MAR*REGSRC*REGDST*REGPRD
+E_vSUPPMAR
+s
+vTRADMAR ! COM*SRC*MAR*REGSRC*REGDST
+E_vTRADMAR
+e           ! exit condensation
+a           ! automatic code generation
+wfp         ! either PGS (for GEMSIM code) or WFP (for FORTRAN code)
+            ! no more options
+RASLIN      ! name of program to be created

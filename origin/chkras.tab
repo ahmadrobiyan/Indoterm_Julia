@@ -1,0 +1,185 @@
+!# used before or after RAS to check how closely conditions are satisfied !
+!# creates only diagnostic output !
+
+File
+INFILE # Input data File #;
+(new) DIAG # Diagnostic Output file #;
+
+Set
+ COM    # Commodities # read elements from file INFILE  header "COM";
+ MAR    # Margin coms # read elements from file INFILE  header "MAR";
+ IND    # Industries # read elements from file INFILE  header "IND";
+ OCC    # Skills # read elements from file INFILE  header "OCC";
+ DST # Regions of use # read elements from file INFILE header "REGD";
+ ORG # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+Subset PRD is subset of REG;
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+  TRADE(c,s,r,d)     # Sourcing matrix #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+  SUPPMAR(m,r,d,p) # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+
+Read
+ TRADMAR from file INFILE header "TMAR";
+ TRADE   from file INFILE header "TRAD";
+ SUPPMAR from file INFILE header "MARS";
+
+Coefficient ! the targets !
+(parameter)(all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d);
+(parameter)(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d);
+(parameter)(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(parameter)(all,c,COM)(all,r,ORG) IMPORT(c,r);
+Read
+ BASIC_U   from file INFILE header "BSCU";
+ MARGINS_U from file INFILE header "MRGU";
+ IMPORT    from file INFILE header "IMPS";
+ MAKE_I    from file INFILE header "COST";
+
+Coefficient
+(ge 0)(all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d);
+(all,c,COM)(all,r,ORG)        IMPUSE(c,r) # Imports landed port r #;
+(all,c,COM)(all,r,ORG)        DOMUSE(c,r) # Demand for dom good source r #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+Formula
+!initial!(all,c,COM)(all,s,SRC)(all,d,DST)
+  TRADE_R(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+!initial!(all,c,COM)(all,r,ORG)
+  IMPUSE(c,r) = sum{d,DST, TRADE(c,"imp",r,d)};
+!initial!(all,c,COM)(all,r,ORG)
+  DOMUSE(c,r) = sum{d,DST, TRADE(c,"dom",r,d)};
+!initial!(all,m,MAR)(all,r,REG)
+        DOMUSE(m,r)=  DOMUSE(m,r) + sum{d,DST,sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+!initial!(all,m,MAR)(all,r,ORG)(all,d,DST)
+        TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+
+Set DIFFS (A,B,DIFF,PERC);
+Coefficient
+(all,c,COM)(all,d,DIFFS) DIFFREP(c,d) # Diff report #;
+Formula
+(all,c,COM)(all,d,DIFFS) DIFFREP(c,d) = 0;
+(all,c,COM) DIFFREP(c,"A") = sum{d,DST, BASIC_U(c,"imp",d)};
+(all,c,COM) DIFFREP(c,"B") = sum{r,ORG, IMPORT(c,r)};
+(all,c,COM) DIFFREP(c,"DIFF") = DIFFREP(c,"B") - DIFFREP(c,"A");
+(all,c,COM) DIFFREP(c,"PERC")
+   = 200*DIFFREP(c,"DIFF")/ID01[DIFFREP(c,"B") + DIFFREP(c,"A")];
+Write DIFFREP to file DIAG header "DR01";
+
+Assertion (initial) # Check BASIC_U(c,"imp",d) sums to IMPORT #
+(all,c,COM) ABS[DIFFREP(c,"PERC")]<0.01;
+
+Formula
+(all,c,COM) DIFFREP(c,"A") = sum{d,ORG, MAKE_I(c,d)};
+(all,c,COM) DIFFREP(c,"B") = sum{d,DST, BASIC_U(c,"dom",d)};
+(all,m,MAR) DIFFREP(m,"B") = DIFFREP(m,"B") +
+         sum{c,COM, sum{s,SRC, sum{d,DST, MARGINS_U(c,s,m,d)}}};
+(all,c,COM) DIFFREP(c,"DIFF") = DIFFREP(c,"B") - DIFFREP(c,"A");
+(all,c,COM) DIFFREP(c,"PERC")
+   = 200*DIFFREP(c,"DIFF")/ID01[DIFFREP(c,"B") + DIFFREP(c,"A")];
+Write DIFFREP to file DIAG header "DR02";
+
+Assertion (initial) # Check MAKE_I(c,d) sums to BASIC_U(c,"dom",d)+ margins #
+(all,c,COM) ABS[DIFFREP(c,"PERC")]<0.01;
+
+Set SetABS (BASIC_U, MARGINS_U, IMPORT, MAKE_I, TRADMAR_CS);
+Coefficient
+ ABSTOT;
+ MAXABS;
+(all,s,SETABS) ABSTOTS(s) # Total absolute errors in RAS conditions #;
+(all,s,SETABS) MAXABSS(s) # Max absolute errors in RAS conditions #;
+(all,c,COM)(all,s,SRC)(all,d,DST) TOTCSD(c,s,d) # Temp total #;
+(all,c,COM)(all,r,ORG)            IMPERR(c,r) # Temp total #;
+(all,c,COM)(all,r,ORG)            DOMERR(c,r) # Temp total #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) TOTCSMD(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) TOTMRD(m,r,d) # Temp total #;
+
+! Check various conditions after RAS ******************************!
+! TRADE should add to BASIC_U !
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+     TOTCSD(c,s,d) = BASIC_U(c,s,d)- sum{r,ORG, TRADE(c,s,r,d)};
+Write TOTCSD to file DIAG header "AZZZ" longname "BASIC_U - TRADE_R";
+Formula
+ ABSTOT = sum{c,COM, sum{s,SRC, sum{d,DST,ABS(TOTCSD(c,s,d))}}};
+ MAXABS = MAXS{c,COM, MAXS{s,SRC, MAXS{d,DST,ABS(TOTCSD(c,s,d))}}};
+ ABSTOTS("BASIC_U")=ABSTOT;
+ MAXABSS("BASIC_U")=MAXABS;
+Write ABSTOT to file DIAG header "UZZZ" longname "BASIC_U - TRADE_R";
+
+! margins should add to MARGINS_U !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TOTCSMD(c,s,m,d) = MARGINS_U(c,s,m,d) - sum{r,ORG, TRADMAR(c,s,m,r,d)};
+Write TOTCSMD to file DIAG header "BZZZ" longname "MARGINS_U - TRADMAR_R";
+Formula 
+ABSTOT = sum{c,COM,sum{s,SRC,sum{m,MAR,sum{d,DST,ABS(TOTCSMD(c,s,m,d))}}}};
+MAXABS=MAXS{c,COM,MAXS{s,SRC,MAXS{m,MAR,MAXS{d,DST,ABS(TOTCSMD(c,s,m,d))}}}};
+ABSTOTS("MARGINS_U")=ABSTOT;
+MAXABSS("MARGINS_U")=MAXABS;
+Write ABSTOT to file DIAG header "VZZZ" longname "MARGINS_U - TRADMAR_R";
+
+! TRADE (imports) should add to IMPORT !
+Formula
+(all,c,COM)(all,r,ORG)
+IMPERR(c,r) = IMPORT(c,r) -sum{d,DST, TRADE(c,"imp",r,d)};
+Write IMPERR to file DIAG header "CZZZ" longname "IMPORT - TRADE_D (imp)";
+Formula
+ABSTOT = sum{c,COM, sum{r,ORG,ABS(IMPERR(c,r))}};
+MAXABS = MAXS{c,COM, MAXS{r,ORG,ABS(IMPERR(c,r))}};
+ABSTOTS("IMPORT")=ABSTOT;
+MAXABSS("IMPORT")=MAXABS;
+Write ABSTOT to file DIAG header "WZZZ" longname "IMPORT - TRADE_D (imp)";
+
+! TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I !
+Formula
+(all,c,NONMAR)(all,r,REG)
+  DOMERR(c,r) = MAKE_I(c,r)- sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) DOMERR(m,r) = MAKE_I(m,r)-
+  sum{d,DST, TRADE(m,"dom",r,d) + sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+Write DOMERR to file DIAG header "DZZZ" longname "MAKE_I - demands";
+Formula 
+ABSTOT = sum{c,COM, sum{r,ORG, ABS(DOMERR(c,r))}};
+MAXABS = MAXS{c,COM, MAXS{r,ORG, ABS(DOMERR(c,r))}};
+ABSTOTS("MAKE_I")=ABSTOT;
+MAXABSS("MAKE_I")=MAXABS;
+Write ABSTOT to file DIAG header "XZZZ" longname "MAKE_I - demands";
+
+! SUPPMAR should add to TRADMAR_CS !
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TOTMRD(m,r,d) = TRADMAR_CS(m,r,d) - sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write TOTMRD to file DIAG header "EZZZ"
+ longname "TRADMAR_CS - SUPPMAR_P";
+Formula 
+ABSTOT = sum{m,MAR, sum{r,ORG, sum{d,DST,ABS(TOTMRD(m,r,d))}}};
+MAXABS = MAXS{m,MAR, MAXS{r,ORG, MAXS{d,DST,ABS(TOTMRD(m,r,d))}}};
+ABSTOTS("TRADMAR_CS")=ABSTOT;
+MAXABSS("TRADMAR_CS")=MAXABS;
+Write ABSTOT to file DIAG header "YZZZ"
+ longname "TRADMAR_CS - SUPPMAR_P *********** end checks";
+
+Write
+ ABSTOTS to file DIAG header "TOAB";
+ MAXABSS to file DIAG header "MXAB";
+
+Assertion # A1 # (all,c,COM)(all,s,SRC)(all,d,DST:TRADE_R(c,s,d)=0)
+BASIC_U(c,s,d)=0;
+
+Assertion # A2 # (all,c,COM)(all,r,ORG:IMPUSE(c,r)=0)
+IMPORT(c,r)=0;
+
+Assertion # A3 # (all,c,COM)(all,r,REG:DOMUSE(c,r)=0)
+MAKE_I(c,r)=0;
+
+! end !

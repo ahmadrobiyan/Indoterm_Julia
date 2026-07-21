@@ -1,0 +1,196 @@
+!# scale TRADE and margins TRADMAR and SUPPMAR to meet control totals !
+!# using linear system approach !
+
+!TRADE should add to BASIC_U
+TRADE (imports) should add to IMPORT:
+TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I
+TRADMAR should add to MARGINS_U
+SUPPMAR should add to TRADMAR_CS!
+
+File
+INFILE # Input data File #;
+(new) DIAG # Diagnostic Output file #;
+! note: main output RASLIN.HAR is the update file !
+
+Set
+ COM    # Commodities # read elements from file INFILE  header "COM";
+ MAR    # Margin coms # read elements from file INFILE  header "MAR";
+ IND    # Industries # read elements from file INFILE  header "IND";
+ OCC    # Skills # read elements from file INFILE  header "OCC";
+ DST # Regions of use # read elements from file INFILE header "REGD";
+ ORG # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+Subset PRD is subset of REG;
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+
+! next code fragment causes FRAC [the proportion of error to eliminate] to start
+  off at 0.05 and increase by 0.05 at each step until FRAC=1 !
+Coefficient
+  FRAC  # Proportion of error to eliminate #;
+Formula (initial) FRAC = 0.01; ! FRAC starts at 0.05  .......       !
+Update  (change)  FRAC = if (FRAC<0.2,  0.01);
+
+Variable
+(no_split) unity; ! no_split --> unity has the same value (=1) at every step !
+(change) delUnity;
+Equation E_delUnity     delUnity = ! FRAC*!unity;
+
+Coefficient
+(ge 0)(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+  TRADE(c,s,r,d)     # Sourcing matrix #;
+(ge 0)(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+  SUPPMAR(m,r,d,p) # Margins supplied by PRD on goods passing from ORG to DST #;
+(ge 0)(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+Variable
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) vTRADE(c,s,r,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG!PRD!) vSUPPMAR(m,r,d,p);
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST) vTRADMAR(c,s,m,r,d);
+
+Read
+ TRADMAR from file INFILE header "TMAR";
+ TRADE   from file INFILE header "TRAD";
+ SUPPMAR from file INFILE header "MARS";
+Update
+(change) (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+TRADE(c,s,r,d) = max[-0.99*TRADE(c,s,r,d),0.01*TRADE(c,s,r,d)*vTRADE(c,s,r,d)];
+(change) (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG!PRD!)
+   SUPPMAR(m,r,d,p) =
+ max[-0.99*SUPPMAR(m,r,d,p),0.01*vSUPPMAR(m,r,d,p)*SUPPMAR(m,r,d,p)];
+(change) (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMAR(c,s,m,r,d) =
+max[-0.99*TRADMAR(c,s,m,r,d), 0.01*vTRADMAR(c,s,m,r,d)*TRADMAR(c,s,m,r,d)];
+
+Coefficient ! the targets !
+(parameter)(all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d);
+(parameter)(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d);
+(parameter)(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(parameter)(all,c,COM)(all,r,ORG) IMPORT(c,r);
+Read
+ BASIC_U   from file INFILE header "BSCU";
+ MARGINS_U from file INFILE header "MRGU";
+ IMPORT    from file INFILE header "IMPS";
+ MAKE_I    from file INFILE header "COST";
+
+Coefficient
+(ge 0)(all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d);
+(all,c,COM)(all,s,SRC)        TRADE_RD(c,s);
+(all,c,COM)(all,r,ORG)        IMPUSE(c,r) # Imports landed port r #;
+(all,c,COM)(all,r,ORG)        DOMUSE(c,r) # Demand for dom good source r #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) TRADMAR_R(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) SUPPMAR_P(m,r,d) # Temp total #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+Formula
+!initial!(all,c,COM)(all,s,SRC)(all,d,DST)
+  TRADE_R(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+         (all,c,COM)(all,s,SRC) TRADE_RD(c,s) = sum{d,DST,TRADE_R(c,s,d)};
+!initial!(all,c,COM)(all,r,ORG)
+  IMPUSE(c,r) = sum{d,DST, TRADE(c,"imp",r,d)};
+!initial!(all,c,COM)(all,r,ORG)
+  DOMUSE(c,r) = sum{d,DST, TRADE(c,"dom",r,d)};
+!initial!(all,m,MAR)(all,r,REG)
+        DOMUSE(m,r)=  DOMUSE(m,r) + sum{d,DST,sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+!initial!(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+        TRADMAR_R(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+!initial!(all,m,MAR)(all,r,ORG)(all,d,DST)
+        TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+!initial!(all,m,MAR)(all,r,ORG)(all,d,DST)
+        SUPPMAR_P(m,r,d) = sum{p,PRD,SUPPMAR(m,r,d,p)};
+
+Variable
+ (all,c,COM)(all,s,SRC)(all,d,DST) ftrade1(c,s,d) # BASIC_U scale #;
+ (all,c,COM)(all,s,SRC)(all,r,ORG) ftrade2(c,s,r)
+ # MAKE_I, IMPORT scale #;
+ (all,c,COM)(all,s,SRC) lambda1(c,s);
+
+Equation E_vTRADE
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+    vTRADE(c,s,r,d) = ftrade1(c,s,d) + ftrade2(c,s,r) + lambda1(c,s);
+
+Equation E_lambda1
+ (all,c,COM)(all,s,SRC)  
+   sum{d,DST,sum{r,ORG, TRADE(c,s,r,d)*[ftrade2(c,s,r)-ftrade1(c,s,d)]}}
+       = if(TRADE_RD(c,s)=0, lambda1(c,s));
+
+
+! TRADE should add to target BASIC_U                    ftrade1(c,s,d)*TRADE!
+Equation E_ftrade1 (all,c,COM)(all,s,SRC)(all,d,DST)
+sum{r,ORG,TRADE(c,s,r,d)*vTRADE(c,s,r,d)} =
+ -100*[TRADE_R(c,s,d)-BASIC_U(c,s,d)]*delUnity
++ if(TRADE_R(c,s,d)=0, ftrade1(c,s,d));
+
+Assertion # A1 # (all,c,COM)(all,s,SRC)(all,d,DST:TRADE_R(c,s,d)=0)
+BASIC_U(c,s,d)=0;
+
+! TRADE (imports) should add to target IMPORT           ftrade2(c,s,r)*TRADE!
+Equation E_ftrade2a (all,c,COM)(all,r,ORG)
+sum{d,DST,TRADE(c,"imp",r,d)*vTRADE(c,"imp",r,d)} =
+ -100*[IMPUSE(c,r)-IMPORT(c,r)]*delUnity
++ if(IMPUSE(c,r)=0, ftrade2(c,"imp",r));
+
+Assertion # A2 # (all,c,COM)(all,r,ORG:IMPUSE(c,r)=0)
+IMPORT(c,r)=0;
+
+! TRADE(dom,nonmar)  should add to target MAKE_I            TRADE*ftrade2!
+Equation E_ftrade2b (all,c,NONMAR)(all,r,REG)
+sum{d,DST,TRADE(c,"dom",r,d)*vTRADE(c,"dom",r,d)} =
+ -100*[DOMUSE(c,r)-MAKE_I(c,r)]*delUnity
++ if(DOMUSE(c,r)=0, ftrade2(c,"dom",r));
+
+Assertion # A3 # (all,c,COM)(all,r,REG:DOMUSE(c,r)=0)
+MAKE_I(c,r)=0;
+
+! TRADE(dom,mar) + Suppmar  should add to target MAKE_I      
+                                                         TRADE*ftrade2!
+Equation E_ftrade2c (all,m,MAR)(all,r,REG)
+sum{d,DST,TRADE(m,"dom",r,d)*vTRADE(m,"dom",r,d)
++ sum{rr, REG, SUPPMAR(m,rr,d,r)*vSUPPMAR(m,rr,d,r)}} =
+ -100*[DOMUSE(m,r)-MAKE_I(m,r)]*delUnity
++ if(DOMUSE(m,r)=0, ftrade2(m,"dom",r));
+
+![[!
+Equation E_vTRADMAR
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  vTRADMAR(c,s,m,r,d) = 0;
+Equation E_vSUPPMAR
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG!PRD!)
+     vSUPPMAR(m,r,d,p) = !fSUPPMAR(m,r,d)! + ftrade2(m,"dom",p);
+!]]!
+
+Variable
+(all,m,MAR)(all,r,ORG)(all,d,DST) fSUPPMAR(m,r,d);
+
+! margins should add to target MARGINS_U !
+Variable
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) fTRADMAR(c,s,m,d);
+Equation E_vTRADMAR
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  vTRADMAR(c,s,m,r,d) =  fTRADMAR(c,s,m,d) - fSUPPMAR(m,r,d)
+ + vTRADE(c,s,r,d);
+
+Equation E_fTRADMAR (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+ sum{r,ORG, TRADMAR(c,s,m,r,d)*vTRADMAR(c,s,m,r,d)} =
+-100*[TRADMAR_R(c,s,m,d)- MARGINS_U(c,s,m,d)]*delUnity
++ if(TRADMAR_R(c,s,m,d)=0, fTRADMAR(c,s,m,d));
+
+! SUPPMAR should add to TRADMAR_CS !
+Equation E_vSUPPMAR
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG!PRD!)
+     vSUPPMAR(m,r,d,p) = fSUPPMAR(m,r,d) + ftrade2(m,"dom",p);
+
+Equation E_fSUPPMAR
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+sum{p,PRD,SUPPMAR(m,r,d,p)*vSUPPMAR(m,r,d,p)}
+- sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)*vTRADMAR(c,s,m,r,d)}}
+
+=
+ - 100*[SUPPMAR_P(m,r,d)- TRADMAR_CS(m,r,d)]*delUnity
++ if(SUPPMAR_P(m,r,d)=0, fSUPPMAR(m,r,d));
+ 
+! end !

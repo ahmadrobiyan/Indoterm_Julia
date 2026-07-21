@@ -1,0 +1,511 @@
+!# Use regional shares to split user columns according to destination !
+!# Inputs: REG0.HAR DISTGONE.HAR REGSUPP.HAR !
+!# Output: REG1.HAR !
+!# File DISTGON = Distances travelled by goods !
+!# uses REGSUPP headers: !
+!#  Set DMAR # Distance related margins # header "DMAR";!
+!#  MARWGT header "MWGT";!
+!#  MSHR header "MSHR"; !
+
+Zerodivide off;
+File
+ INFILE # Input data File #;
+ REGSUPP # Supplementary input data File #;
+ DISTGON  # Distances travelled by goods #;
+ (new) DIAG # Diagnostic file #;
+
+Set
+ COM # Commodities #           read elements from file INFILE header "COM";
+ MAR # Margin coms #           read elements from file INFILE header "MAR";
+ IND # Industries #            read elements from file INFILE header "IND";
+ OCC # Skills #                read elements from file INFILE header "OCC";
+ DST # Regions of use #        read elements from file INFILE header "REGD";
+ ORG # Regions of origin #     read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+ REG = DST intersect ORG;
+ FINDEM # Final demanders #  (HOU, INV, GOV, EXP);                   !f!
+ SRC # Source # (dom,imp);
+ USR = IND + FINDEM;
+ FACTOR # Primary factors # (Labour, Capital, Land, ProdTax);
+
+Subset MAR is subset of COM;
+
+Coefficient DEFREGSHR # 1/[No of regions] = default regional share #;
+Formula     DEFREGSHR = 1/[sum{r,ORG,1}];
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR) NATBASIC(c,s,u) # Basic flows #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR) NATMARGINS(c,s,u,m)# Margins #;
+(all,c,COM)(all,s,SRC)(all,u,USR) NATTAXES(c,s,u) # Sales taxes #;
+(all,c,COM)(all,s,SRC)(all,u,USR) NATPUR(c,s,u) # Pur values #;
+(all,i,IND) NATSTOCKS(i) # Domestic inventories #;
+!(all,i,IND) NATMAKE_C(i) # National ind outputs #;!
+(all,i,IND)(all,g,FACTOR) NATFAC(i,g) # National factor costs #;
+(all,c,COM)(all,i,IND) NATMAKE(c,i) # MAKE matrix #;
+(all,c,COM)(all,i,IND) INVSHR(c,i) # Investment splitting shares #;
+Read
+ NATFAC from file INFILE header "FACT";
+ NATBASIC from file INFILE header "UBAS";
+ NATMARGINS from file INFILE header "UMAR";
+ NATTAXES from file INFILE header "UTAX";
+ NATMAKE from file INFILE header "MAKE";
+ NATSTOCKS from file INFILE header "STOK";
+ INVSHR from file INFILE header "ISHR";
+
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)
+NATPUR(c,s,u) = NATBASIC(c,s,u) + NATTAXES(c,s,u)
+ + sum{m,MAR, NATMARGINS(c,s,u,m)};
+!(all,i,IND) NATMAKE_C(i) = sum{c,COM,NATMAKE(c,i)};!
+
+Coefficient
+ (all,c,COM) INVPUR_I(c) # Investment at purchasers prices #;
+ (all,c,COM)(all,i,IND) NATINVEST(c,i) # Investment at purchasers prices #;
+Formula
+ (all,c,COM) INVPUR_I(c) =  sum{s,SRC, NATPUR(c,s,"INV")};
+ (all,c,COM)(all,i,IND) NATINVEST(c,i) = INVSHR(c,i)*INVPUR_I(c);
+
+Coefficient
+(all,i,IND)(all,d,DST) R001(i,d) # Regional output shares #;
+(all,i,IND)(all,d,DST) R002(i,d) # Regional investment shares #;
+(all,c,COM)(all,d,DST) R003(c,d) # Regional consumption shares #;
+(all,c,COM)(all,d,DST) R004(c,d) # Regional export shares #;
+(all,c,COM)(all,d,DST) R005(c,d) # Regional gov shares #;
+Read
+ R001 from file INFILE header "R001";
+ R002 from file INFILE header "R002";
+ R003 from file INFILE header "R003";
+!R004 from file INFILE header "R004"; 
+ regional production shares are replaced with port-of-exit shares !
+ R004 from file REGSUPP header "ESHR";
+ R005 from file INFILE header "R005";
+
+Coefficient
+(all,i,IND) INDTOT(i);
+(all,c,COM) COMTOT(c);
+Formula
+(all,i,IND) INDTOT(i)= sum{d,DST, R001(i,d)};
+(all,i,IND: INDTOT(i)= 0) (all,d,DST) R001(i,d) = DEFREGSHR;
+(all,i,IND) INDTOT(i)= sum{d,DST, R002(i,d)};
+(all,i,IND: INDTOT(i)= 0) (all,d,DST) R002(i,d) = DEFREGSHR;
+(all,c,COM) COMTOT(c)= sum{d,DST, R003(c,d)};
+(all,c,COM: COMTOT(c)= 0) (all,d,DST) R003(c,d) = DEFREGSHR;
+(all,c,COM) COMTOT(c)= sum{d,DST, R004(c,d)};
+(all,c,COM: COMTOT(c)= 0) (all,d,DST) R004(c,d) = DEFREGSHR;
+(all,c,COM) COMTOT(c)= sum{d,DST, R005(c,d)};
+(all,c,COM: COMTOT(c)= 0) (all,d,DST) R005(c,d) = DEFREGSHR;
+
+Assertion ! if below not true, program will stop with message !
+ # R001 shares add to 1 # (all,i,IND) ABS[1-sum{d,DST,R001(i,d)}] <0.00001;
+ # R002 shares add to 1 # (all,i,IND) ABS[1-sum{d,DST,R002(i,d)}] <0.00001;
+ # R003 shares add to 1 # (all,c,COM) ABS[1-sum{d,DST,R003(c,d)}] <0.00001;
+ # R004 shares add to 1 # (all,c,COM) ABS[1-sum{d,DST,R004(c,d)}] <0.00001;
+ # R005 shares add to 1 # (all,c,COM) ABS[1-sum{d,DST,R005(c,d)}] <0.00001;
+
+Coefficient
+!(all,i,IND)(all,d,DST) OUTPUT(i,d) # Provisional output #;
+(all,d,DST) OUTPUT_I(d) # Provisional output by region #;
+(all,i,IND)(all,d,DST) OUTSHR(i,d) # Share of i in region r production #;!
+NZERO # Number of R001 which are zero #;
+Formula
+ NZERO= sum{i,IND, sum{d,DST: R001(i,d)=0,1}};
+Write NZERO to file DIAG header "nz01"
+  longname "number of R001 which are initially zero";
+!Formula
+(all,i,IND)(all,d,DST) OUTPUT(i,d) = R001(i,d)*NATMAKE_C(i);
+(all,d,DST) OUTPUT_I(d) = sum{i,IND,OUTPUT(i,d)};
+(all,i,IND)(all,d,DST) OUTSHR(i,d) = OUTPUT(i,d)/OUTPUT_I(d);
+(all,i,IND)(all,d,DST: (R001(i,d)<0.001)and (OUTSHR(i,d)<0.0005))R001(i,d)=0;!
+Formula
+ NZERO= sum{i,IND, sum{d,DST: R001(i,d)=0,1}};
+Write NZERO to file DIAG header "nz02"
+  longname "number of R001 which are zero after dropping some tiny shares";
+Formula
+(all,i,IND)(all,d,DST: R001(i,d)=0 ) R002(i,d)=0;
+
+! scale shares to sum to 1 !
+(all,i,IND) INDTOT(i)= sum{d,DST, R001(i,d)};
+(all,i,IND)(all,d,DST) R001(i,d) = R001(i,d)/INDTOT(i);
+(all,i,IND) INDTOT(i)= sum{d,DST, R002(i,d)};
+(all,i,IND)(all,d,DST) R002(i,d) = R002(i,d)/INDTOT(i);
+(all,c,COM) COMTOT(c)= sum{d,DST, R003(c,d)};
+(all,c,COM)(all,d,DST) R003(c,d) = R003(c,d)/COMTOT(c);
+(all,c,COM) COMTOT(c)= sum{d,DST, R004(c,d)};
+(all,c,COM)(all,d,DST) R004(c,d) = R004(c,d)/COMTOT(c);
+(all,c,COM) COMTOT(c)= sum{d,DST, R005(c,d)};
+(all,c,COM)(all,d,DST) R005(c,d) = R005(c,d)/COMTOT(c);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USHR(c,s,u,d) # Reg shares #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) BASIC(c,s,u,d) # Basic flows #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)(all,d,DST)
+                  MARGINS(c,s,u,m,d)# Margins #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) TAXES(c,s,u,d);
+(all,i,IND)(all,d,DST) STOCKS(i,d) # Domestic inventories #;
+(all,i,IND)(all,g,FACTOR)(all,d,DST) FAC(i,g,d)
+ # Regional factor costs #;
+ (all,c,COM)(all,i,IND)(all,d,DST)
+            INVEST(c,i,d) # Investment at purchasers prices #;
+ (all,c,COM)(all,d,DST)
+            INVEST_I(c,d) # Investment at purchasers prices #;
+ (all,c,COM) INVEST_ID(c) # Investment at purchasers prices #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,u,IND)(all,d,DST) USHR(c,s,u,d) = R001(u,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) USHR(c,s,"Hou",d) = R003(c,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) USHR(c,s,"Gov",d) = R005(c,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) USHR(c,s,"Exp",d) = R004(c,d);
+
+ (all,c,COM)(all,i,IND)(all,d,DST)
+            INVEST(c,i,d) = R002(i,d)*NATINVEST(c,i);
+(all,c,COM)(all,d,DST)
+            INVEST_I(c,d) = sum{i,IND,INVEST(c,i,d)};
+(all,c,COM) INVEST_ID(c)  = sum{d,DST,INVEST_I(c,d)};
+Zerodivide default DEFREGSHR;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+      USHR(c,s,"Inv",d) = INVEST_I(c,d)/INVEST_ID(c);
+Zerodivide off;
+
+Coefficient (all,d,DST)(all,m,MAR) MARWGT(d,m)
+ # Margin weighting: DEST * MAR #; ! island dest will use more ship margin !
+Read MARWGT from file REGSUPP header "MWGT";
+! Note: MARWGT acts on both ORG and DST: ORG action is in REG2.TAB !
+! Ensure MARWGT>=0.01 !
+Formula (all,d,DST)(all,m,MAR) MARWGT(d,m)= MAX[0.01,MARWGT(d,m)];
+
+! adjust regional direct use to conform with MARWGT idea:
+    not many passenger rail trips where there is no railway !
+Formula  (all,m,MAR)(all,s,SRC)(all,u,USR)(all,d,DST)
+   USHR(m,s,u,d) = USHR(m,s,u,d)*MARWGT(d,m);
+
+! Scaling USHR to sum to 1 !
+Coefficient (all,c,COM)(all,s,SRC)(all,u,USR) USHRTOT(c,s,u) # Share totals #;
+Zerodivide default DEFREGSHR;
+Formula 
+ (all,c,COM)(all,s,SRC)(all,u,USR) USHRTOT(c,s,u) = sum{d,DST,USHR(c,s,u,d)};
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   USHR(c,s,u,d) = USHR(c,s,u,d)/USHRTOT(c,s,u);
+ (all,c,COM)(all,s,SRC)(all,u,USR) USHRTOT(c,s,u) = sum{d,DST,USHR(c,s,u,d)};
+Zerodivide off;
+Assertion # USHR add to 1 #
+(all,c,COM)(all,s,SRC)(all,u,USR) ABS[1-USHRTOT(c,s,u)]<0.000001;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST)
+        DISTGONE(c,s,d) # Average distance travelled by goods  - from PSTRAS#;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+     MARGINS_D(c,s,u,m);
+Read DISTGONE from file DISTGON header "DGON";
+Set DMAR # Distance related margins #
+read elements from file REGSUPP header "DMAR";
+Subset DMAR is subset of MAR;
+
+Assertion  # Check nat taxes are zero when nat basic=0 #
+ (all,c,COM)(all,s,SRC)(all,u,USR: NATBASIC(c,s,u)<=0) NATTAXES(c,s,u)=0;
+Assertion  # Check nat margins are zero when nat basic=0 # (all,m,MAR)
+ (all,c,COM)(all,s,SRC)(all,u,USR: NATBASIC(c,s,u)<=0) NATMARGINS(c,s,u,m)=0;
+
+Zerodivide default 0;
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+     BASIC(c,s,u,d) = NATBASIC(c,s,u)*USHR(c,s,u,d);
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+     TAXES(c,s,u,d) = NATTAXES(c,s,u)*USHR(c,s,u,d);
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)(all,d,DST)
+     MARGINS(c,s,u,m,d)= NATMARGINS(c,s,u,m)*USHR(c,s,u,d);
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,DMAR)(all,d,DST)
+     MARGINS(c,s,u,m,d)=  MARWGT(d,m)*SQRT[DISTGONE(c,s,d)]* MARGINS(c,s,u,m,d);
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+     MARGINS_D(c,s,u,m)= sum{d,DST, MARGINS(c,s,u,m,d)};
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)(all,d,DST)
+  MARGINS(c,s,u,m,d)= MARGINS(c,s,u,m,d)*NATMARGINS(c,s,u,m)/MARGINS_D(c,s,u,m);
+(all,i,IND)(all,d,DST) STOCKS(i,d) = R001(i,d)*NATSTOCKS(i);
+(all,i,IND)(all,g,FACTOR)(all,d,DST) FAC(i,g,d)= R001(i,d)*NATFAC(i,g);
+Zerodivide off;
+
+Set PARTS (BASIC,Tax,MARGINS);
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)(all,p,PARTS)PURCH(c,s,u,d,p);
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)(all,p,PARTS)
+    PURCH(c,s,u,d,p)=0;
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+    PURCH(c,s,u,d,"Basic")   = BASIC(c,s,u,d);
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+    PURCH(c,s,u,d,"Tax")     =  TAXES(c,s,u,d);
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+    PURCH(c,s,u,d,"Margins") = sum{m,MAR, MARGINS(c,s,u,m,d)};
+Write PURCH to file DIAG header "PRCH";
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) BADTAX(c,s,u,d);
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+ BADTAX(c,s,u,d) = IF(BASIC(c,s,u,d)<=0, TAXES(c,s,u,d));
+Write BADTAX to file DIAG header "BTAX";
+Assertion
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)ABS[BADTAX(c,s,u,d)]<0.00000001;
+
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST: BASIC(c,s,u,d)<=0)
+   TAXES(c,s,u,d)=0;
+
+Assertion # Check taxes are zero when basic=0 #
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST: BASIC(c,s,u,d)<=0)
+   TAXES(c,s,u,d)=0;
+Assertion # Check margins are zero when basic=0 #
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)(all,d,DST: BASIC(c,s,u,d)<=0)
+   MARGINS(c,s,u,m,d)=0;
+
+Coefficient ! split the make following cost split !
+(all,i,IND)(all,d,DST) COSTS(i,d);
+(all,i,IND)(all,d,DST) NETPUT(i,d) # Costs less stocks #;
+(all,i,IND)(all,d,DST) R001A(i,d)# Revised R001 shares #;
+(all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d) # MAKE matrix #;
+(all,i,IND)(all,d,DST) MAKE_C(i,d);
+(all,i,IND)(all,d,DST) DIFFIND(i,d);
+Formula
+(all,i,IND)(all,d,DST) COSTS(i,d)= sum{g,FACTOR, FAC(i,g,d)}
+ + sum{c,COM,sum{s,SRC,BASIC(c,s,i,d)+ TAXES(c,s,i,d)
+ + sum{m,MAR,MARGINS(c,s,i,m,d)}}};
+(all,i,IND)(all,d,DST) NETPUT(i,d) =  COSTS(i,d) - STOCKS(i,d);
+(all,i,IND)(all,d,DST) R001A(i,d)= NETPUT(i,d)/sum{q,DST,NETPUT(i,q)};
+(all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d)= R001A(i,d)*NATMAKE(c,i);
+(all,i,IND)(all,d,DST) MAKE_C(i,d)=sum{c,COM,MAKE(c,i,d)};
+(all,i,IND)(all,d,DST) DIFFIND(i,d)= NETPUT(i,d) - MAKE_C(i,d);
+
+Assertion (all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d)>=0;
+
+
+Set HEAVYEXP # coms which are bulky with very high export share #
+(BauxiteOre, PetrolNatGas, CopperOre, NonFerrMetal,Cocoa, NickelOre, !SmokedRubber,! CoalLignite);
+
+ 
+Set LOCAL = HEAVYEXP;
+
+![[! make export demand LNG follow production ???????????? !
+Set LOCAL # Truly local commodities #
+       read elements from file REGSUPP header "RLOC";!]]!
+
+Subset LOCAL is subset of COM;
+Subset LOCAL is subset of IND;
+Formula (all,c,LOCAL)(all,d,DST) USHR(c,"dom","Exp",d) = R001a(c,d);
+(all,c,LOCAL)(all,d,DST)
+     BASIC(c,"dom","Exp",d) = NATBASIC(c,"dom","Exp")*USHR(c,"dom","Exp",d);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d) # Basic flows #;
+(all,c,COM)(all,d,DST) IMPUSE(c,d) # Use of imports #;
+(all,c,COM) NATIMP(c) # Imports #;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d) = sum{u,USR, BASIC(c,s,u,d)};
+(all,c,COM)(all,d,DST) IMPUSE(c,d) = BASIC_U(c,"imp",d);
+(all,c,COM) NATIMP(c) = sum{d,DST, IMPUSE(c,d)};
+
+Coefficient
+(all,c,COM)(all,r,ORG) DEFAULTMSHR(c,r)
+          # Share of national imports, by region of use [Default MSHR]  #;
+Zerodivide default DEFREGSHR;
+Formula
+(all,c,COM)(all,r,ORG) DEFAULTMSHR(c,r) = 0; ! avoid warning !
+(all,c,COM)(all,r,REG) DEFAULTMSHR(c,r) = IMPUSE(c,r)/NATIMP(c);
+Zerodivide off;
+Write DEFAULTMSHR to file DIAG header "DMSR";
+
+Coefficient
+(all,c,COM)(all,r,ORG) MSHR(c,r)# Share of national imports, by port of entry #;
+! this might be zero for some COMs..signifying "dont know" !
+(all,c,COM) TEMTOT(c);
+!(all,r,ORG) PORTIMP(r) # Imports by port of entry #;
+TOTKNOWNIMPS # temp total #;!
+Read      MSHR  from file REGSUPP header "MSHR";
+Assertion # Check MSHR>=0 # (all,c,COM)(all,r,ORG) MSHR(c,r)>=0.0;
+Formula
+ (all,c,COM) TEMTOT(c) = sum{r,ORG, MSHR(c,r)};
+! if whole row zero, use default shares !
+(all,c,COM:TEMTOT(c)=0)(all,r,ORG) MSHR(c,r) = DEFAULTMSHR(c,r);
+(all,c,COM) TEMTOT(c) = sum{r,ORG, MSHR(c,r)};
+(all,c,COM)(all,r,ORG) MSHR(c,r) = MSHR(c,r)/TEMTOT(c);
+
+Coefficient (all,c,COM)(all,r,ORG) IMPORT(c,r) # Imports, by port of entry #;
+Formula (all,c,COM)(all,r,ORG) IMPORT(c,r) = MSHR(c,r)*NATIMP(c);
+
+Coefficient
+(all,m,MAR)(all,d,DST) MARDEMAND(m,d) # Total margin use #;
+(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) ALLDEMAND(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,ORG) ALLSUPPLY(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,REG) DIFFCOM(c,s,d)# ALLSUPPLY - ALLDEMAND #;
+Formula
+(all,m,MAR)(all,d,DST) MARDEMAND(m,d) =
+          sum{c,COM,sum{s,SRC,sum{u,USR, MARGINS(c,s,u,m,d)}}};
+(all,c,COM)(all,s,SRC)(all,d,DST) ALLDEMAND(c,s,d)=BASIC_U(c,s,d);
+(all,m,MAR)(all,d,DST)
+        ALLDEMAND(m,"dom",d)=ALLDEMAND(m,"dom",d)+MARDEMAND(m,d);
+(all,c,COM)(all,d,ORG) MAKE_I(c,d)= 0; ! avoid warning !
+(all,c,COM)(all,d,REG) MAKE_I(c,d)=sum{i,IND,MAKE(c,i,d)};
+(all,c,COM)(all,s,SRC)(all,d,ORG) ALLSUPPLY(c,s,d)=0;
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"dom",d)=MAKE_I(c,d);
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"imp",d)=IMPORT(c,d);
+(all,c,COM)(all,s,SRC)(all,d,REG)
+      DIFFCOM(c,s,d) = ALLSUPPLY(c,s,d) - ALLDEMAND(c,s,d);
+
+Set INT # Intermediate user # (Intermediate);
+Set MUPLUS # TotalDemand, LocalSupply # (TotalDemand, LocalSupply);
+Set MAINUSR # Main user groups #  = INT + FINDEM;
+Set MAINUSRPLUS # Main user groups, with output #  = MAINUSR + MUPLUS;
+Mapping (ONTO) AGGUSR from USR to MAINUSR;
+Formula
+ (all,u,IND) AGGUSR(u) = "Intermediate";
+ (all,u,FINDEM) AGGUSR(u) = $pos(u,MAINUSR);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,MAINUSRPLUS)(all,d,DST)
+            MAINBASIC(c,s,u,d) # Basic flows by main user and dest,with output#;
+(all,c,COM)(all,s,SRC)(all,d,DST) DIRDEMAND(c,s,d);
+(all,c,COM)(all,i,IND) DIFFMAKE(c,i) #NATMAKE - sum{d,DST,MAKE}#;
+Formula
+(all,c,COM)(all,s,SRC)(all,u,MAINUSRPLUS)(all,d,DST)
+            MAINBASIC(c,s,u,d) = 0;
+(all,c,COM)(all,s,SRC)(all,u,MAINUSR)(all,d,DST)
+            MAINBASIC(c,s,u,d) = sum{k,USR: AGGUSR(k)=u,BASIC(c,s,k,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST)
+            DIRDEMAND(c,s,d) = sum{u,MAINUSR,MAINBASIC(c,s,u,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST)
+            MAINBASIC(c,s,"TotalDemand",d) = DIRDEMAND(c,s,d);
+(all,c,COM)(all,d,REG)
+            MAINBASIC(c,"dom","LocalSupply",d) = MAKE_I(c,d);
+(all,c,COM)(all,d,REG)
+            MAINBASIC(c,"imp","LocalSupply",d) = IMPORT(c,d);
+
+(all,i,IND)(all,d,DST) COSTS(i,d)= sum{g,FACTOR, FAC(i,g,d)}
+ + sum{c,COM,sum{s,SRC,BASIC(c,s,i,d)+ TAXES(c,s,i,d)
+ + sum{m,MAR,MARGINS(c,s,i,m,d)}}};
+
+(all,i,IND)(all,d,DST) MAKE_C(i,d)=sum{c,COM,MAKE(c,i,d)};
+(all,c,COM)(all,i,IND) DIFFMAKE(c,i) = NATMAKE(c,i)- sum{d,DST,MAKE(c,i,d)};
+Write
+ COSTS     to file DIAG header "COST";
+ MAKE_C    to file DIAG header "MAKC";
+ DIFFMAKE  to file DIAG header "DMAK";
+ DIFFIND   to file DIAG header "DIND";
+ MAINBASIC to file DIAG header "MBAS";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) INTDEMAND(c,s,d) # Intermediate demand #;
+(all,c,COM)(all,s,SRC)(all,d,DST) FINDEMAND(c,s,d) # Final demand #;
+(all,c,COM)(all,s,SRC)(all,d,ORG) DEMRATIO(c,s,d)# LocalDEMAND/localSUPPLY #;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) INTDEMAND(c,s,d)=sum{u,IND,BASIC(c,s,u,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST) FINDEMAND(c,s,d)=sum{u,FINDEM,BASIC(c,s,u,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST)
+        ALLDEMAND(c,s,d)=INTDEMAND(c,s,d) + FINDEMAND(c,s,d);
+(all,m,MAR)(all,d,DST) MARDEMAND(m,d) =
+          sum{c,COM,sum{s,SRC,sum{u,USR, MARGINS(c,s,u,m,d)}}};
+(all,m,MAR)(all,d,DST)
+        ALLDEMAND(m,"dom",d)=ALLDEMAND(m,"dom",d)+MARDEMAND(m,d);
+(all,c,COM)(all,s,SRC)(all,d,ORG) ALLSUPPLY(c,s,d)=0;
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"dom",d)=MAKE_I(c,d);
+(all,c,COM)(all,d,ORG) ALLSUPPLY(c,"imp",d)=IMPORT(c,d);
+(all,c,COM)(all,s,SRC)(all,d,REG)
+      DIFFCOM(c,s,d) = ALLSUPPLY(c,s,d) - ALLDEMAND(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,ORG) DEMRATIO(c,s,d) = 0;
+(all,c,COM)(all,s,SRC)(all,d,REG)
+   DEMRATIO(c,s,d) = [0.01+ALLDEMAND(c,s,d)]/[0.01+ALLSUPPLY(c,s,d)];
+
+Set SUPPSET (Supply,Demand,Diff,Ratio);
+Coefficient
+(all,a,SUPPSET)(all,c,COM)(all,s,SRC)(all,d,REG)
+     SUPPDEM(a,c,s,d)# DEMAND/SUPPLY summary#;
+Formula
+(all,a,SUPPSET)(all,c,COM)(all,s,SRC)(all,d,REG) SUPPDEM(a,c,s,d)=0;
+(all,c,COM)(all,s,SRC)(all,d,REG) SUPPDEM("Supply",c,s,d)=ALLSUPPLY(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,REG) SUPPDEM("Demand",c,s,d)=ALLDEMAND(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,REG) SUPPDEM("Diff",c,s,d)=DIFFCOM(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,REG) SUPPDEM("Ratio",c,s,d)=DEMRATIO(c,s,d);
+
+Write
+ MARDEMAND to file DIAG header "MARD";
+ ALLDEMAND to file DIAG header "ADEM";
+ ALLSUPPLY to file DIAG header "ASUP";
+ DIFFCOM to file DIAG header "DCOM";
+ DEMRATIO to file DIAG header "DRAT";
+ SUPPDEM to file DIAG header "SPDM";
+
+Coefficient
+  (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d)# Margins #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d)
+          # Basic + margin flows#;
+Formula
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+             MARGINS_U(c,s,m,d) = sum{u,USR,MARGINS(c,s,u,m,d)};
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d) =
+      BASIC(c,s,u,d) + sum{m,MAR,MARGINS(c,s,u,m,d)};
+
+File (new) OUTFILE # Output file #;
+Write
+(Set) COM to file OUTFILE header "COM";
+(Set) MAR to file OUTFILE header "MAR";
+(Set) IND to file OUTFILE header "IND";
+(Set) OCC to file OUTFILE header "OCC";
+(Set) DST to file OUTFILE header "REGD";
+(Set) ORG to file OUTFILE header "REGS";
+(Set) PRD to file OUTFILE header "REGP";
+
+Write
+ BASIC to file DIAG header "UBAS";
+ MAKE_I to file DIAG header "MAKI";
+ MARGINS to file DIAG header "UMAR";
+
+Write
+ FAC to file OUTFILE header "FACT";
+ TAXES to file OUTFILE header "UTAX";
+ MAKE to file OUTFILE header "MAKE";
+ STOCKS to file OUTFILE header "STOK";
+ BASIC_U to file OUTFILE header "BSCU";
+ MARGINS_U to file OUTFILE header "MRGU";
+ USE to file OUTFILE header "BSMR";
+ IMPORT to file OUTFILE header "IMPS";
+ ALLDEMAND to file OUTFILE header "ADEM";
+ ALLSUPPLY to file OUTFILE header "ASUP";
+
+Transfer "OSHR" from file INFILE to file OUTFILE;
+Transfer "DIST" from file INFILE to file OUTFILE;
+
+Coefficient
+(all,c,COM)(all,d,DST) CHECKE(c,d) # INVEST_I - PUR_S(inv) #;
+(all,c,COM)(all,d,DST) PURINV(c,d) # PUR_S(inv) #;
+Formula
+ (all,c,COM)(all,d,DST) INVEST_I(c,d) = sum{i,IND, INVEST(c,i,d)};
+(all,c,COM)(all,d,DST) PURINV(c,d) =
+      sum{s,SRC,USE(c,s,"Inv",d)+ TAXES(c,s,"Inv",d)};
+(all,c,COM)(all,d,DST) CHECKE(c,d) = INVEST_I(c,d) - PURINV(c,d);
+Write CHECKE to file DIAG header "ICK1" longname "INVEST_I - PUR_S(inv)";
+
+! scale INVEST matrix to sum to USE + TAX !
+Coefficient
+ (all,c,COM)(all,d,DST) SCALINV(c,d)  # Investment Scaler #;
+Zerodivide default 1.0;
+Formula
+ (all,c,COM)(all,d,DST) SCALINV(c,d) = PURINV(c,d)/INVEST_I(c,d);
+Zerodivide default 0.0;
+Formula
+ (all,c,COM)(all,i,IND)(all,d,DST)
+    INVEST(c,i,d) = INVEST(c,i,d)*PURINV(c,d)/INVEST_I(c,d);
+
+ (all,c,COM)(all,d,DST) INVEST_I(c,d) = sum{i,IND, INVEST(c,i,d)};
+(all,c,COM)(all,d,DST) CHECKE(c,d) = INVEST_I(c,d) - PURINV(c,d);
+Zerodivide off;
+
+Write
+ SCALINV to file DIAG header "SCNV";
+ CHECKE  to file DIAG header "ICK2" longname "INVEST_I - PUR_S(inv)";
+ INVEST  to file OUTFILE header "2PUR" longname
+ "investment at purchasers prices";
+
+Assertion # Check taxes are zero when basmar=0 #
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST: USE(c,s,u,d)=0)
+ TAXES(c,s,u,d)=0;
+
+! end !

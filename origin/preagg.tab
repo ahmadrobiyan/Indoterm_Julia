@@ -1,0 +1,90 @@
+!# prepare AGGSUPP file for AGGHAR program !
+File   WEIGHTS # Weights for parameter aggregation: from PREMOD #;
+       BIGSETS # Original disaggregated sets: from PREMOD #;
+       SECAGG  # Sector aggregation instructions #;
+       REGAGG  # Region aggregation instructions #;
+ (new) OUTFILE # AGGSUPP file for AGGHAR program #;
+
+Set
+ COM # Commodities    # read elements from file BIGSETS header "COM";
+ IND # Industries     # read elements from file BIGSETS header "IND";
+ REG # Regions of use # read elements from file BIGSETS header "REGD";
+ DST # Regions of use # read elements from file BIGSETS header "REGD";
+ ORG # Regions of use # read elements from file BIGSETS header "REGD";
+ PRD # Regions of use # read elements from file BIGSETS header "REGD";
+ FINDEM # Final demanders # (HOU, INV, GOV, EXP);
+ USR = IND + FINDEM;
+
+ AGGCOM # Commodities    # read elements from file SECAGG header "ACOM";
+ AGGIND # Industries     # read elements from file SECAGG header "AIND";
+ AGGREG # Regions of use # read elements from file REGAGG header "AREG";
+ AGGUSR = AGGIND + FINDEM;
+
+Write
+(Set) COM    to file OUTFILE header "COM";
+(Set) REG    to file OUTFILE header "REG";
+(Set) DST    to file OUTFILE header "REGD";
+(Set) ORG    to file OUTFILE header "REGS";
+(Set) PRD    to file OUTFILE header "REGP";
+(Set) IND    to file OUTFILE header "IND";
+(Set) USR    to file OUTFILE header "USR";
+(Set) AGGCOM to file OUTFILE header "ACOM";
+(Set) AGGREG to file OUTFILE header "AREG";
+(Set) AGGIND to file OUTFILE header "AIND";
+(Set) AGGUSR to file OUTFILE header "AUSR";
+
+Mapping (onto)     MAPREG from REG to AGGREG;
+Read (by_elements) MAPREG from file REGAGG header "MREG";
+
+Mapping (onto) MAPREGD from DST to AGGREG;
+Subset DST is subset of REG;
+Formula (by_elements)(all,r,DST) MAPREGD(r)=MAPREG(r);
+Write   (by_elements)            MAPREGD to file OUTFILE header "MRGD";
+
+Mapping (onto) MAPREGS from ORG to AGGREG;
+Subset ORG is subset of REG;
+Formula (by_elements)(all,r,ORG) MAPREGS(r)=MAPREG(r);
+Write   (by_elements)            MAPREGS to file OUTFILE header "MRGS";
+
+Mapping (onto) MAPREGP from PRD to AGGREG;
+Subset PRD is subset of REG;
+Formula (by_elements)(all,r,PRD) MAPREGP(r)=MAPREG(r);
+Write   (by_elements)            MAPREGP to file OUTFILE header "MRGP";
+
+Mapping (onto)      MAPCOM from COM to AGGCOM;
+Read  (by_elements) MAPCOM from file SECAGG header "MCOM";
+Write (by_elements) MAPCOM to   file OUTFILE header "MCOM";
+
+Mapping (onto)        MAPIND from IND to AGGIND;
+Read    (by_elements) MAPIND from file SECAGG header "MIND";
+Write   (by_elements) MAPIND to   file OUTFILE header "MIND";
+
+Mapping (onto) MAPUSR from USR to AGGUSR;
+Formula (by_elements)(all,u,IND)    MAPUSR(u) = MAPIND(u);
+Formula !by_elements!(all,u,FINDEM) MAPUSR(u) = $pos(u,AGGUSR);
+Write   (by_elements) MAPUSR to file OUTFILE header "MUSR";
+
+! to assist with top-down to original regions !
+Set RGNX # Original Regions # = DST;
+Set ORGREG # Original Regions # = DST;
+Mapping R121 from RGNX to ORGREG;
+Formula (all,r,RGNX) R121(r) = $pos(r);
+Write
+ (set)         RGNX   to file OUTFILE header "OREG";
+ (set)         ORGREG to file OUTFILE header "ORGR";
+ (by_elements) R121   to file OUTFILE header "R121";
+
+Transfer unwritten from file WEIGHTS to file OUTFILE;
+
+! next lines just prevent stupid GEMPACK warning !
+Assertion (all,c,COM: MAPCOM(c) eq MAPCOM(c)) 1=1;
+Assertion (all,i,IND: MAPIND(i) eq MAPIND(i)) 1=1;
+Assertion (all,r,REG: MAPREG(r) eq MAPREG(r)) 1=1;
+Assertion (all,u,USR: MAPUSR(u) eq MAPUSR(u)) 1=1;
+
+! next is for use with ShadeMap !
+File  (new) MAPAGG # Output file containing data needed to produce map #;
+Write (Set) AGGREG to file MAPAGG header "AREG";
+Write       MAPREG to file MAPAGG header "REGM";
+
+! End file!

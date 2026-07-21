@@ -1,0 +1,10 @@
+auxiliary files = reg1;
+File INFILE = reg0.HAR;
+File distgon  = distgone.har; ! usually, from pstras
+File OUTFILE = reg1.HAR;
+File DIAG = dgreg1.HAR;
+File REGSUPP = REGSUPP.HAR;
+log file = yes ; 
+check-on-read all = warn;
+
+

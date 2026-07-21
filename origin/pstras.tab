@@ -1,0 +1,316 @@
+!# check whether RASSED trade data sums to targets !
+!# combine regional IO tables and trade data into one file !
+!# make tiny changes to factor payments, MAKE and IMPORTS to make supply=demand!
+!# recompute DISTGONE !
+!# Write FLAG=1 to DIAG file if new DISTGONE is very close to old DISTGONE !
+ 
+!TRADE should add to BASIC_U
+TRADMAR should add to MARGINS_U
+TRADE (imports) should add to IMPORT:
+TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I
+SUPPMAR should add to TRADMAR_CS!
+
+File
+      INFILE  # Input data File (from RASTRD) #;
+      PREV    # Input data File (from REG2) #;
+(new) DIAG    # Diagnostic Output file [FLAG header is used] #;
+(new) DISTGON # Distances travelled by goods #;
+   DISTGONOLD # Previous estimate of distances travelled by goods #;
+
+Set
+ COM # Commodities # read elements from file INFILE  header "COM";
+ MAR # Margin coms # read elements from file INFILE  header "MAR";
+ IND # Industries # read elements from file INFILE  header "IND";
+ OCC # Skills # read elements from file INFILE  header "OCC";
+ DST # Regions of use # read elements from file INFILE header "REGD";
+ ORG # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+!Set SEC = COM intersect IND;!
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+
+Coefficient ABSTOT;
+!Coefficient LIM;
+Formula Lim=0.5;!
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) # Sourcing matrix #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p)
+ # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+Read
+ TRADMAR from file INFILE header "TMAR";
+ TRADE from file INFILE header "TRAD";
+ SUPPMAR from file INFILE header "MARS";
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d) # Basic flows#;
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d)# Margins #;
+ (all,c,COM)(all,r,ORG) IMPORT(c,r) # Imports, by port of entry #;
+Read
+ BASIC_U from file INFILE header "BSCU";
+ MARGINS_U from file INFILE header "MRGU";
+ IMPORT from file INFILE header "IMPS";
+
+Coefficient
+(all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d) # MAKE #;
+(all,c,COM)(all,d,ORG) MAKE_I(c,d);
+(all,i,IND)(all,d,REG) MAKE_C(i,d);
+(all,i,IND)(all,o,OCC)(all,d,DST) V1LAB(i,o,d) # Wage matrix #;
+(all,i,IND)(all,d,DST) V1CAP(i,d) # Rentals to capital #;
+(all,i,IND)(all,d,DST) V1LND(i,d) # Rentals to land #;
+
+Read
+MAKE  from file PREV header "MAKE";
+V1LAB from file PREV header "1LAB";
+V1CAP from file PREV header "1CAP";
+V1LND from file PREV header "1LND";
+
+Formula
+(all,c,COM)(all,d,ORG) MAKE_I(c,d)= 0;
+(all,c,COM)(all,d,REG) MAKE_I(c,d)=sum{i,IND,MAKE(c,i,d)};
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) TEMTOTcsd(c,s,d) # Temp total #;
+(all,c,COM)(all,r,ORG)            IMPERR(c,r) # Temp total #;
+(all,c,COM)(all,r,ORG)            DOMERR(c,r) # Temp total #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) TEMTOTcsmd(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) TEMTOTmrd(m,r,d) # Temp total #;
+
+Coefficient (all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+Formula (all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+
+! Check various conditions after RAS ******************************!
+! TRADE should add to BASIC_U !
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTcsd(c,s,d) = BASIC_U(c,s,d)- sum{r,ORG, TRADE(c,s,r,d)};
+Write TEMTOTcsd to file DIAG header "AZZZ" longname "BASIC_U - TRADE_R";
+Formula ABSTOT = sum{c,COM, sum{s,SRC, sum{d,DST,ABS(TEMTOTcsd(c,s,d))}}};
+Write ABSTOT to file DIAG header "UZZZ" longname "BASIC_U - TRADE_R";
+
+! margins should add to MARGINS_U !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTcsmd(c,s,m,d) = MARGINS_U(c,s,m,d) - sum{r,ORG, TRADMAR(c,s,m,r,d)};
+Write TEMTOTcsmd to file DIAG header "BZZZ" longname "MARGINS_U - TRADMAR_R";
+Formula ABSTOT = sum{c,COM, sum{s,SRC, sum{m,MAR, sum{d,DST,
+ABS(TEMTOTcsmd(c,s,m,d))}}}};
+Write ABSTOT to file DIAG header "VZZZ" longname "MARGINS_U - TRADMAR_R";
+
+! TRADE (imports) should add to IMPORT !
+Formula
+(all,c,COM)(all,r,ORG)
+IMPERR(c,r) = IMPORT(c,r) -sum{d,DST, TRADE(c,"imp",r,d)};
+Write IMPERR to file DIAG header "CZZZ" longname "IMPORT - TRADE_D (imp)";
+Formula ABSTOT = sum{c,COM, sum{r,ORG,ABS(IMPERR(c,r))}};
+Write ABSTOT to file DIAG header "WZZZ" longname "IMPORT - TRADE_D (imp)";
+
+! TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I !
+Formula
+(all,c,NONMAR)(all,r,REG)
+  DOMERR(c,r) = MAKE_I(c,r)- sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) DOMERR(m,r) = MAKE_I(m,r)-
+  sum{d,DST, TRADE(m,"dom",r,d) + sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+Write DOMERR to file DIAG header "DZZZ" longname "MAKE_I - demands";
+Formula ABSTOT = sum{c,COM, sum{r,ORG, ABS(DOMERR(c,r))}};
+Write ABSTOT to file DIAG header "XZZZ" longname "MAKE_I - demands";
+
+! SUPPMAR should add to TRADMAR_CS !
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTmrd(m,r,d) = TRADMAR_CS(m,r,d) - sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write TEMTOTmrd to file DIAG header "EZZZ"
+ longname "TRADMAR_CS - SUPPMAR_P";
+Formula ABSTOT = sum{m,MAR, sum{r,ORG, sum{d,DST,ABS(TEMTOTmrd(m,r,d))}}};
+Write ABSTOT to file DIAG header "YZZZ"
+ longname "TRADMAR_CS - SUPPMAR_P *********** end checks";
+
+! perform adjustments ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^!
+Formula (all,c,COM)(all,r,ORG) IMPORT(c,r) = IMPORT(c,r) - IMPERR(c,r);
+Coefficient
+(all,i,IND)(all,d,DST) FACTOR(i,d) # Original primary factor payments #;
+(all,i,IND)(all,d,DST) FACTOR2(i,d) # New primary factor payments #;
+(all,i,IND)(all,d,DST) SCALEFAC(i,d)
+         # Ratio, new/old primary factor payments#;
+
+Coefficient (all,i,IND)(all,d,REG) INDERR(i,d) # ind version of Domerr #;
+Formula     (all,i,IND)(all,d,REG) INDERR(i,d) = 
+  sum{c,COM, DOMERR(c,d)*MAKE(c,i,d)/ID01[MAKE_I(c,d)]};
+
+Formula
+(all,i,IND)(all,d,DST)
+    FACTOR(i,d) = V1CAP(i,d) + V1LND(i,d) + sum{o,OCC, V1LAB(i,o,d)};
+(all,i,IND)(all,d,DST) FACTOR2(i,d) = 0;
+(all,i,IND)(all,d,REG) FACTOR2(i,d) = FACTOR(i,d) - INDERR(i,d);
+Write
+FACTOR to file DIAG header "FACT";
+FACTOR2 to file DIAG header "FAC2";
+
+Formula
+(all,i,IND)(all,d,REG) MAKE_C(i,d) = sum{c,COM,MAKE(c,i,d)};
+(all,i,IND)(all,d,DST) SCALEFAC(i,d) = 1.0;
+(all,i,IND)(all,d,REG:FACTOR(i,d)>0.01*MAKE_C(i,d))
+                 SCALEFAC(i,d) = FACTOR2(i,d)/FACTOR(i,d);
+(all,i,IND)(all,d,DST: SCALEFAC(i,d)<0.7) SCALEFAC(i,d) = 0.7;
+(all,i,IND)(all,d,DST: SCALEFAC(i,d)>1.5) SCALEFAC(i,d) = 1.5;
+(all,i,IND)(all,d,DST) FACTOR2(i,d) = SCALEFAC(i,d)*FACTOR(i,d);
+(all,i,IND)(all,d,REG) INDERR(i,d) = FACTOR(i,d) - FACTOR2(i,d);
+
+Write SCALEFAC to file DIAG header "SFAC";
+
+Coefficient (all,c,COM)(all,i,IND)(all,d,REG) delMAKE(c,i,d) # MAKE adjust #;
+
+Formula
+(all,i,IND)(all,d,REG) MAKE_C(i,d) = sum{c,COM,MAKE(c,i,d)};
+(all,c,COM)(all,i,IND)(all,d,REG) delMAKE(c,i,d) = 
+   INDERR(i,d)*MAKE(c,i,d)/ID01[MAKE_C(i,d)];
+(all,i,IND)(all,o,OCC)(all,d,DST) V1LAB(i,o,d)= V1LAB(i,o,d)*SCALEFAC(i,d);
+(all,i,IND)(all,d,DST) V1CAP(i,d)=V1CAP(i,d)*SCALEFAC(i,d);
+(all,i,IND)(all,d,DST) V1LND(i,d)=V1LND(i,d)*SCALEFAC(i,d);
+(all,c,COM)(all,i,IND)(all,d,REG:SCALEFAC(i,d) <> 1.0)
+       MAKE(c,i,d) = MAKE(c,i,d) - delMAKE(c,i,d);
+
+(all,c,COM)(all,d,REG) MAKE_I(c,d) = sum{i,IND,MAKE(c,i,d)};
+
+! Check various conditions after RAS ******************************!
+! TRADE should add to BASIC_U !
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTcsd(c,s,d) = BASIC_U(c,s,d)- sum{r,ORG, TRADE(c,s,r,d)};
+Write TEMTOTcsd to file DIAG header "AQQQ" longname "BASIC_U - TRADE_R";
+Formula ABSTOT = sum{c,COM, sum{s,SRC, sum{d,DST,ABS(TEMTOTcsd(c,s,d))}}};
+Write ABSTOT to file DIAG header "UQQQ" longname "BASIC_U - TRADE_R";
+
+! margins should add to MARGINS_U !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TEMTOTcsmd(c,s,m,d) = MARGINS_U(c,s,m,d) - sum{r,ORG, TRADMAR(c,s,m,r,d)};
+Write TEMTOTcsmd to file DIAG header "BQQQ" longname "MARGINS_U - TRADMAR_R";
+Formula ABSTOT = sum{c,COM, sum{s,SRC, sum{m,MAR, sum{d,DST,
+ABS(TEMTOTcsmd(c,s,m,d))}}}};
+Write ABSTOT to file DIAG header "VQQQ" longname "MARGINS_U - TRADMAR_R";
+
+! TRADE (imports) should add to IMPORT !
+Formula
+(all,c,COM)(all,r,ORG)
+IMPERR(c,r) = IMPORT(c,r) -sum{d,DST, TRADE(c,"imp",r,d)};
+Write IMPERR to file DIAG header "CQQQ" longname "IMPORT - TRADE_D (imp)";
+Formula ABSTOT = sum{c,COM, sum{r,ORG,ABS(IMPERR(c,r))}};
+Write ABSTOT to file DIAG header "WQQQ" longname "IMPORT - TRADE_D (imp)";
+
+! TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I !
+Formula
+(all,c,NONMAR)(all,r,REG)
+  DOMERR(c,r) = MAKE_I(c,r)- sum{d,DST, TRADE(c,"dom",r,d)};
+(all,m,MAR)(all,r,REG) DOMERR(m,r) = MAKE_I(m,r)-
+  sum{d,DST, TRADE(m,"dom",r,d) + sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+Write DOMERR to file DIAG header "DQQQ" longname "MAKE_I - demands";
+Formula ABSTOT = sum{c,COM, sum{r,ORG, ABS(DOMERR(c,r))}};
+Write ABSTOT to file DIAG header "XQQQ" longname "MAKE_I - demands";
+
+! SUPPMAR should add to TRADMAR_CS !
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTmrd(m,r,d) = TRADMAR_CS(m,r,d) - sum{p,PRD,SUPPMAR(m,r,d,p)};
+Write TEMTOTmrd to file DIAG header "EQQQ"
+ longname "TRADMAR_CS - SUPPMAR_P";
+Formula ABSTOT = sum{m,MAR, sum{r,ORG, sum{d,DST,ABS(TEMTOTmrd(m,r,d))}}};
+Write ABSTOT to file DIAG header "YQQQ"
+ longname "TRADMAR_CS - SUPPMAR_P *********** end checks";
+
+!**********************************************!
+File (new) OUTFILE # Output file #;
+Write
+(Set) COM to file OUTFILE header "COM";
+(Set) MAR to file OUTFILE header "MAR";
+(Set) IND to file OUTFILE header "IND";
+(Set) OCC to file OUTFILE header "OCC";
+(Set) DST to file OUTFILE header "REGD";
+(Set) ORG to file OUTFILE header "REGS";
+(Set) PRD to file OUTFILE header "REGP";
+
+Write
+IMPORT to file OUTFILE header "IMPS";
+MAKE   to file OUTFILE header "MAKE";
+V1LAB  to file OUTFILE header "1LAB";
+V1CAP  to file OUTFILE header "1CAP";
+V1LND  to file OUTFILE header "1LND";
+
+Write
+ TRADE to file OUTFILE header "TRAD" longname "sourcing matrix";
+ SUPPMAR to file OUTFILE header "MARS" longname
+ "margins supplied by PRD on goods passing from ORG to DST";
+ TRADMAR to file OUTFILE header "TMAR" longname "margins on trade matrix";
+
+Transfer unwritten from file PREV to file OUTFILE;
+
+! work out average distance travelled by goods !
+! This was needed at REG1 stage !
+Coefficient
+ (all,r,ORG)(all,d,DST) DISTANCE(r,d) # Distance from r to d #;
+Read DISTANCE from file PREV header "DIST";
+Write DISTANCE to file OUTFILE header "DIST";
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d) # goods to d #;
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+        DISTGONE(c,s,d) # Average distance travelled by goods  - from PSTRAS#;
+Formula     
+(all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST:TRADE_R(c,s,d)>0)
+DISTGONE(c,s,d) = sum{r,ORG,DISTANCE(r,d)*TRADE(c,s,r,d) }/TRADE_R(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST:TRADE_R(c,s,d)=0)
+DISTGONE(c,s,d) = sum{r,ORG,DISTANCE(r,d)}/sum{r,ORG,1};
+Write DISTGONE to file DIAG header "DGON";
+
+Write DISTGONE to file DISTGON header "DGON";
+
+! Compare DISTGONE with previous estimate !
+Coefficient
+ TOTTRADE;
+ TOTABSDIFF # Total absolute difference in distance estimates #;
+ AVEABSDIFF # Average absolute difference in distance estimates #;
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+        OLDDISTGONE(c,s,d) # previous estimate of DISTGONE #;
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+        DIFFDIST(c,s,d) # difference in DISTGONE estimates #;
+Read OLDDISTGONE from file DISTGONOLD header "DGON";
+
+Formula
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+        DIFFDIST(c,s,d) = DISTGONE(c,s,d) - OLDDISTGONE(c,s,d);
+ TOTTRADE = sum{c,COM,sum{s,SRC,sum{d,DST, TRADE_R(c,s,d)}}};
+ TOTABSDIFF = sum{c,COM,sum{s,SRC,sum{d,DST, ABS[DIFFDIST(c,s,d)]}}};
+ AVEABSDIFF = 
+ sum{c,COM,sum{s,SRC,sum{d,DST,TRADE_R(c,s,d)*ABS[DIFFDIST(c,s,d)]}}}/TOTTRADE;
+
+Set REP (old,new,diff);
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DST)(all,q,REP)
+        DIFFREP(q,c,s,d) # difference in DISTGONE estimates #;
+Formula   
+  (all,c,COM)(all,s,SRC)(all,d,DST) DIFFREP("old",c,s,d)  = OLDDISTGONE(c,s,d);
+  (all,c,COM)(all,s,SRC)(all,d,DST) DIFFREP("new",c,s,d)  = DISTGONE(c,s,d);
+  (all,c,COM)(all,s,SRC)(all,d,DST) DIFFREP("diff",c,s,d) = DIFFDIST(c,s,d);
+Write 
+ DIFFREP    to file DIAG header "DFRP";
+ DIFFDIST   to file DIAG header "DDST";
+ TOTABSDIFF to file DIAG header "TADD";
+ AVEABSDIFF to file DIAG header "AVAD";
+
+Coefficient FLAG # dummy: 1 if AVEABSDIFF is acceptably small; else 0 #;
+Formula     FLAG = IF(AVEABSDIFF<0.001, 1);
+Write FLAG to file DIAG header "FLAG";
+Write FLAG to file OUTFILE header "FLAG";
+
+! end !

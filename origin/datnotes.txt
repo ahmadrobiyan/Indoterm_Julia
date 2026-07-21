@@ -1,0 +1,132 @@
+
+:STAGE1
+
+rnInit
+File init.tab:
+!# Checks initial ORANIG03-style database NATIONAL.HAR !
+!# writes clean copy INIT.HAR !
+!# and creates dummy files of additional data needed to build TERM database: !
+!#  DUMSUPP.HAR  dummy example REGSUPP.HAR file of needed extra regional data ! 
+!#  DUMSEC.AGG   dummy sector aggregation instructions !
+!#  DUMREG.AGG   dummy region aggregation instructions !
+
+rnREG0
+File reg0.tab:
+!# Reformatting ORANI-G style database INIT.HAR !
+!# Aggregate investment columns !
+!# Move dom stocks to IND type vector ; ignore imp stocks !
+!# Adjust R001 for truly local industries !
+!# Normalize distance matrix !
+!# Make preliminary estimate of DISTGONE(c,s,d): Average distance ! 
+!#   travelled by goods. Later, the PSTRAS job works this out properly.  !
+!# Input files: INIT.HAR   REGSUPP.HAR !
+!# Output files: !
+!# REG0.HAR      reformatted national database !  
+!# NATELAST.HAR  national elasticities to be used later !
+!# DISTINIT.HAR  temporary estimate of distances travelled by goods !
+
+:STAGE2
+
+rnReg1
+File reg1.tab:
+!# Use regional shares to split user columns according to destination !
+!# Inputs: REG0.HAR DISTGONE.HAR REGSUPP.HAR !
+!# Output: REG1.HAR !
+!# File DISTGON = Distances travelled by goods !
+!# uses REGSUPP headers: !
+!#  Set DMAR # Distance related margins # header "DMAR";!
+!#  MARWGT header "MWGT";!
+!#  MSHR header "MSHR"; !
+
+rnReg2
+File reg2.tab:
+!# Construct trial trade matrices for later RASsing !
+!# Input files: reg1.har regsupp.har !
+!# Output file: reg2.HAR !
+!# Use following headers from REGSUPP: !
+!#  DISTFAC header "DFAC"; !
+!#  Set LOCAL # Truly local commodities #  header "RLOC";!
+!#  Set DMAR # Distance related margins #  header "DMAR";!
+!#  MARWGT header "MWGT";!
+!#  LOCMAR(m) # tendency for margin to be locally sourced # header "LMAR";!
+
+rnchkrasa
+File chkras.tab:
+!# used before or after RAS to check how closely conditions are satisfied !
+!# creates only diagnostic output !
+
+rnTrdRAS
+File TrdRAS.tab:
+!# scale TRADE and margins TRADMAR and SUPPMAR to meet control totals !
+!# using conventional scaling approach !
+
+rnchkrasb
+
+rnRASLIN
+File raslin.tab:
+!# scale TRADE and margins TRADMAR and SUPPMAR to meet control totals !
+!# using linear system approach !
+
+rnchkrasc
+rnTrdRAS2
+rnchkrasd
+
+rnPstras
+File pstras.tab:
+!# check whether RASSED trade data sums to targets !
+!# combine regional IO tables and trade data into one file !
+!# make tiny changes to factor payments, MAKE and IMPORTS to make supply=demand!
+!# recompute DISTGONE !
+!# Write FLAG=1 to DIAG file if new DISTGONE is very close to old DISTGONE !
+
+
+Note: rnPstRas creates a file repeat.dat if the revised distance file distgone.har
+is much different from the previous file distgone.old.
+At this point, if repeat.dat exists, STAGE2 is restarted
+
+
+rnPremod
+File PREMOD.TAB:
+!# Assemble data in TERM format before simulation or aggregation !
+
+:STAGE3
+
+rnChkmdA
+File CHKMOD.TAB:
+!# Diagnostic only: Check/summarize TERM data file before use or aggregation ! 
+ 
+rnPreagg
+File PREAGG.TAB:
+!# prepare AGGSUPP file for AGGHAR program using aggregation files sec.agg and reg.agg
+! Prepares shademap file ThisMap.mif with aggregated regions
+
+rnAgg
+rnAggset
+File AGGSET.TAB:
+!#  Creates separate TERM sets file from main data file !
+
+rnChkmdB
+rnTerm
+rnChkmdC
+
+
+
+
+
+
+NOTES
+
+(1) Process uses helper (non-TABLO) programs: 
+later.exe
+seterr.exe
+diffhar.exe
+agghar.exe
+tsthar.exe
+
+(2) Before running each TAB program, the batch file COMPILE is called.
+COMPILE.BAT runs TABLO and LTG for %1.TAB only IF NECESSARY. 
+It uses helper programs LATER.EXE and SETERR.EXE.
+
+
+
+

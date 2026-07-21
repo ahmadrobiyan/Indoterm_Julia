@@ -1,0 +1,9 @@
+! This is a default STI file which you may need to edit
+BAT         ! causes stop if an error
+            ! no more options
+reg0        ! name of TAB file
+            ! same name for INF
+a           ! automatic code generation
+WFP         ! either PGS (for GEMSIM code) or WFP (for FORTRAN code)
+            ! no more options
+reg0        ! name of program to be created

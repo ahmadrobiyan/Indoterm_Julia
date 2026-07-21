@@ -1,0 +1,641 @@
+!# Reformatting ORANI-G style database INIT.HAR !
+!# Aggregate investment columns !
+!# Move dom stocks to IND type vector ; ignore imp stocks !
+!# Adjust R001 for truly local industries !
+!# Normalize distance matrix !
+!# Make preliminary estimate of DISTGONE(c,s,d): Average distance ! 
+!#   travelled by goods. Later, the PSTRAS job works this out properly.  !
+!# Input files: INIT.HAR   REGSUPP.HAR !
+!# Output files: !
+!# REG0.HAR      reformatted national database !  
+!# NATELAST.HAR  national elasticities to be used later !
+!# DISTINIT.HAR  temporary estimate of distances travelled by goods !
+ZeroDivide off;
+File
+      INFILE  # Input data File #;
+      REGSUPP # Supplementary input data File #;
+(new) OUTFILE # Output file #;
+(new) DIAG    # Diag file #;
+(new) ELAST   # Elasticities from national model, for later use #;
+
+Set
+ REG # Regions #     read elements from file INFILE header "REG";
+ COM # Commodities # read elements from file INFILE header "COM";
+ MAR # Margin #      read elements from file INFILE header "MAR";
+ IND # Industries #  read elements from file INFILE header "IND";
+ OCC # Skills #      read elements from file INFILE header "OCC";
+ SRC # Source of Commodities #   (dom,imp);
+ FINDEM # Final demanders # (Hou,Inv, Gov, Exp);
+ USR = IND union FINDEM;
+ FACTOR # Primary factors # (Labour, Capital, Land, ProdTax);
+ DST # Regions of use # = REG;
+ ORG # Regions of origin # = REG;
+
+Subset MAR is subset of COM;
+
+Write
+ (Set) REG to file OUTFILE header "REGD";
+ (Set) REG to file OUTFILE header "REGS";
+ (Set) REG to file OUTFILE header "REGP";
+
+Transfer "COM" from file INFILE to file OUTFILE;
+Transfer "MAR" from file INFILE to file OUTFILE;
+Transfer "IND" from file INFILE to file OUTFILE;
+Transfer "OCC" from file INFILE to file OUTFILE;
+
+!Coefficient NCOM # Number of commodities #;
+Formula     NCOM  = sum{c,COM,1};!
+
+Coefficient (all,c,COM)(all,i,IND) MAKE(c,i) # MAKE matrix #;
+Read MAKE from file INFILE header "MAKE";
+
+!read national data!
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR) BASIC(c,s,u)  # Basic flows #;
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR) MARGINS(c,s,u,m) # Margins #;
+ (all,c,COM)(all,s,SRC)(all,u,USR) TAX(c,s,u) # TAXES matrix #;
+ (all,i,IND) STOCKS(i) # Domestic inventories #;
+
+ (all,c,COM)(all,s,SRC)(all,i,IND) V1BAS(c,s,i)  # Intermediate #;
+ (all,c,COM)(all,s,SRC)(all,i,IND) V2BAS(c,s,i)  # Investment  #;
+ (all,c,COM)(all,s,SRC)            V3BAS(c,s)    # Households   #;
+ (all,c,COM)(all,s,SRC)            V4BAS(c,s)    # Export       #;
+ (all,c,COM)(all,s,SRC)            V5BAS(c,s)    # Other Demand #;
+ (all,c,COM)(all,s,SRC)            V6BAS(c,s)    # Inventories  #;
+
+ (all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR)  V1MAR(c,s,i,m)  # Intermediate #;
+ (all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR)  V2MAR(c,s,i,m)  # Investment #;
+ (all,c,COM)(all,s,SRC)(all,m,MAR)             V3MAR(c,s,m)    # Households #;
+ (all,c,COM)(all,s,SRC)(all,m,MAR)             V4MAR(c,s,m)    # Export #;
+ (all,c,COM)(all,s,SRC)(all,m,MAR)             V5MAR(c,s,m)    # Other #;
+
+ (all,c,COM)(all,s,SRC)(all,i,IND)  V1TAX(c,s,i)  # Intermediate tax #;
+ (all,c,COM)(all,s,SRC) (all,i,IND) V2TAX(c,s,i)  # Investment tax #;
+ (all,c,COM)(all,s,SRC)             V3TAX(c,s)    # Households tax #;
+ (all,c,COM)(all,s,SRC)             V4TAX(c,s)    # Export tax #;
+ (all,c,COM)(all,s,SRC)             V5TAX(c,s)    # Other Demand Tax #;
+! original ORANIG format !
+ (all,c,COM)            V4BASA(c)    # Exports #;
+ (all,c,COM)(all,m,MAR) V4MARA(c,m)  # Export margins #;
+ (all,c,COM)            V4TAXA(c)    # Export tax #;
+
+Read
+ V1BAS from file INFILE header "1BAS";
+ V2BAS from file INFILE header "2BAS";
+ V3BAS from file INFILE header "3BAS";
+ V4BASA from file INFILE header "4BAS";
+ V5BAS from file INFILE header "5BAS";
+ V6BAS from file INFILE header "6BAS";
+
+Read
+ V1TAX from file INFILE header "1TAX";
+ V2TAX from file INFILE header "2TAX";
+ V3TAX from file INFILE header "3TAX";
+ V4TAXA from file INFILE header "4TAX";
+ V5TAX from file INFILE header "5TAX";
+
+Read
+ V1MAR from file INFILE header "1MAR";
+ V2MAR from file INFILE header "2MAR";
+ V3MAR from file INFILE header "3MAR";
+ V4MARA from file INFILE header "4MAR";
+ V5MAR from file INFILE header "5MAR";
+
+Formula ! add import dimension to exports !
+ (all,c,COM)(all,s,SRC)            V4BAS(c,s)       = 0;
+ (all,c,COM)(all,s,SRC)(all,m,MAR) V4MAR(c,s,m)     = 0;
+ (all,c,COM)(all,s,SRC)            V4TAX(c,s)       = 0;
+ (all,c,COM)                       V4BAS(c,"dom")   = V4BASA(c);
+ (all,c,COM)(all,m,MAR)            V4MAR(c,"dom",m) = V4MARA(c,m);
+ (all,c,COM)                       V4TAX(c,"dom")   = V4TAXA(c);
+
+Coefficient  ! Primary Factor and Other Industry costs !
+ (all,i,IND)                  V1CAP(i)    # Capital rentals #;
+ (all,i,IND)(all,o,OCC)       V1LAB(i,o)  # Wage bill matrix #;
+ (all,i,IND)(all,o,OCC)       OCCSHR(i,o) # Occupations share #;
+ (all,i,IND)(all,g,FACTOR)    FAC(i,g)    # Wages, profits and land rental #;
+ (all,i,IND)                  V1LND(i)    # Land rentals #;
+ (all,i,IND)                  V1OCT(i)    # Other cost tickets #;
+ (all,i,IND)                  V1PTX(i)    # Production tax #;
+ (all,i,IND)                  V1LAB_O(i)  # Wage bill matrix #;
+Read
+ V1CAP  from file INFILE header "1CAP";
+ V1LAB  from file INFILE header "1LAB";
+ V1LND  from file INFILE header "1LND";
+ V1OCT  from file INFILE header "1OCT";
+ V1PTX  from file INFILE header "1PTX";
+
+Coefficient 
+ (all,c,COM) MAKE_I(c) # MAKE addup #;
+ (all,i,IND) MAKE_C(i) # MAKE addup #;
+Formula 
+ (all,c,COM) MAKE_I(c) = sum{i,IND, MAKE(c,i)};
+ (all,i,IND) MAKE_C(i) = sum{c,COM, MAKE(c,i)};
+
+Coefficient ! optionally, ensure each industry uses SOME capital !
+ CAPFRAC # addition as share of industry output #; 
+ (all,i,IND) CAPADJ(i) # addition of tiny capital rentals #;
+Formula  
+ CAPFRAC =  1/1000000000;  ! set this to 0 to disable the addition !
+ (all,i,IND) CAPADJ(i)=0;
+ (all,i,IND:V1CAP(i)=0) CAPADJ(i) = CAPFRAC*MAKE_C(i);
+ (all,i,IND:V1CAP(i)=0) V1CAP(i)  = CAPADJ(i);
+Write CAPADJ to file DIAG header "CADJ";
+
+Coefficient ! remove stocks from MAKE: treat them as within-factory stores !
+ (all,c,COM)(all,i,IND) STOCKMAKE(c,i) # Stocks by com and ind #;
+Formula
+ (all,c,COM)                 MAKE_I(c) = sum{i,IND, MAKE(c,i)};
+ (all,c,COM)(all,i,IND) STOCKMAKE(c,i) = V6BAS(c,"dom")*MAKE(c,i)/MAKE_I(c);
+ (all,i,IND)                 STOCKS(i) = sum{c,COM,STOCKMAKE(c,i)};
+ (all,c,COM)(all,i,IND)      MAKE(c,i) =  MAKE(c,i) - STOCKMAKE(c,i);
+ (all,c,COM)                 MAKE_I(c) = sum{i,IND, MAKE(c,i)};
+ (all,i,IND)                 MAKE_C(i) = sum{c,COM, MAKE(c,i)};
+
+Formula ! Basic flows !
+ (all,c,COM)(all,s,SRC)(all,u,USR) BASIC(c,s,u)     = 0;
+ (all,c,COM)(all,s,SRC)(all,i,IND) BASIC(c,s,i)     = V1BAS(c,s,i);
+ (all,c,COM)(all,s,SRC)            BASIC(c,s,"inv") = sum{i,IND, V2BAS(c,s,i)};
+ (all,c,COM)(all,s,SRC)            BASIC(c,s,"hou") = V3BAS(c,s);
+ (all,c,COM)(all,s,SRC)            BASIC(c,s,"exp") = V4BAS(c,s);
+ (all,c,COM)(all,s,SRC)            BASIC(c,s,"gov") = V5BAS(c,s);
+Write BASIC to file DIAG header "BAS";
+
+Formula ! factor costs !
+ (all,i,IND)                  V1LAB_O(i)       = sum{o,OCC, V1LAB(i,o)};
+ (all,i,IND)(all,o,OCC)       OCCSHR(i,o)      = V1LAB(i,o) / V1LAB_O(i);
+ (all,g,FACTOR)(all,i,IND)    FAC(i,g)         = 0;
+ (all,i,IND)                  FAC(i,"Capital") = V1CAP(i);
+ (all,i,IND)                  FAC(i,"Labour")  = sum{o,OCC, V1LAB(i,o)};
+ (all,i,IND)                  FAC(i,"Land")    = V1LND(i);
+ (all,i,IND)                  FAC(i,"Prodtax") = V1OCT(i) + V1PTX(i);
+Write OCCSHR to file OUTFILE header "OSHR";
+
+Formula ! commodity taxes !
+ (all,c,COM)(all,s,SRC)(all,u,USR)  TAX(c,s,u)       = 0;
+ (all,c,COM)(all,s,SRC)(all,i,IND)  TAX(c,s,i)       = V1TAX(c,s,i);
+ (all,c,COM)(all,s,SRC)             TAX(c,s,"Inv")   = sum{i,IND, V2TAX(c,s,i)};
+ (all,c,COM)(all,s,SRC)             TAX(c,s,"Hou")   = V3TAX(c,s);
+ (all,c,COM)(all,s,SRC)             TAX(c,s,"Exp")   = V4TAX(c,s);
+ (all,c,COM)(all,s,SRC)             TAX(c,s,"Gov")   = V5TAX(c,s);
+
+! ORANI-G values imports at tariff-paid prices, TERM values imports at CIF.
+  Make appropriate adjustment by:
+   adding (distributing) tariff revenue to the TAX matrix
+   subtracting equivalent amounts from the BASIC matrix !
+Coefficient
+ (all,c,COM)(all,u,USR) TARF(c,u) # adjustment: tariff part of import tax #;
+ (all,c,COM)            IMPTOT(c) # import total #;
+ (all,c,COM)            V0TAR(c)  # Tariff Revenue #;
+Read V0TAR from file INFILE header "0TAR";
+Zerodivide default 0;
+Formula
+ (all,c,COM)            IMPTOT(c) = sum{u,USR, BASIC(c,"imp",u)};
+ (all,c,COM)(all,u,USR) TARF(c,u) = V0TAR(c)*BASIC(c,"imp",u)/IMPTOT(c);
+ (all,c,COM)(all,u,USR) TAX(c,"imp",u)   = TAX(c,"imp",u)   + TARF(c,u);
+ (all,c,COM)(all,u,USR) BASIC(c,"imp",u) = BASIC(c,"imp",u) - TARF(c,u);
+Write
+ TAX  to file DIAG header "TAX";
+ TARF to file DIAG header "TARF";
+! alternative to above: add tariffs explicitly to TERM model !
+
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR) MARGINS(c,s,u,m) = 0;
+ (all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR) MARGINS(c,s,i,m) = V1MAR(c,s,i,m);
+ (all,c,COM)(all,s,SRC)(all,m,MAR)
+             MARGINS(c,s,"Inv",m) = sum{i,IND, V2MAR(c,s,i,m)};
+ (all,c,COM)(all,s,SRC)(all,m,MAR) MARGINS(c,s,"Hou",m)     = V3MAR(c,s,m);
+ (all,c,COM)(all,s,SRC)(all,m,MAR) MARGINS(c,s,"Exp",m)     = V4MAR(c,s,m);
+ (all,c,COM)(all,s,SRC)(all,m,MAR) MARGINS(c,s,"Gov",m)     = V5MAR(c,s,m);
+
+! Record Orginal margin value !
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR) MAR_OGL(c,s,u,m) # Margins #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      MAR_OGL(c,s,u,m) = MARGINS(c,s,u,m);
+Write
+ MAR_OGL to file DIAG header "MARO";
+
+! Zero out margins on zero basic flows !
+Coefficient (all,u,USR)(all,m,MAR) MARTOT(u,m) # Margins #;
+Formula (all,u,USR)(all,m,MAR) ! first preserve original totals !
+      MARTOT(u,m) = sum{c,COM, sum{s,SRC, MARGINS(c,s,u,m)}};
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      NOBAS_MAR(c,s,u,m) # Margin w/out flow #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      NOBAS_MAR(c,s,u,m) = IF[BASIC(c,s,u)=0, MARGINS(c,s,u,m)];
+Write ! record bad flows !
+ NOBAS_MAR to file DIAG header "NOBM";
+Formula ! remove bad flows !
+ (all,c,COM)(all,s,SRC)(all,u,USR: BASIC(c,s,u)=0)(all,m,MAR)
+    MARGINS(c,s,u,m) = 0;
+! rescale margins so they add up to MARTOT again !
+Coefficient (all,u,USR)(all,m,MAR) MARTOT2(u,m) # Margins #;
+Formula (all,u,USR)(all,m,MAR)
+      MARTOT2(u,m) = sum{c,COM, sum{s,SRC, MARGINS(c,s,u,m)}};
+Write MARTOT2 to file DIAG header "MRT2";
+Formula (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR: MARTOT2(u,m)>0)
+ MARGINS(c,s,u,m) =  MARGINS(c,s,u,m)*MARTOT(u,m)/MARTOT2(u,m);
+Formula (all,u,USR)(all,m,MAR)
+      MARTOT2(u,m) = MARTOT(u,m) - sum{c,COM, sum{s,SRC, MARGINS(c,s,u,m)}};
+Write MARTOT2 to file DIAG header "MRT3"
+longname "change in margins total...should be tiny";
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR) BADTAX(c,s,u) # Taxes on zero basic flows #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR) BADTAX(c,s,u)= 0;
+ (all,c,COM)(all,s,SRC)(all,u,USR:BASIC(c,s,u)<=0) BADTAX(c,s,u)= TAX(c,s,u);
+Write BADTAX to file DIAG header "BTAX";
+Coefficient (all,i,IND) TRNSTX(i) # Bad taxes transferred to production tax #;
+Formula (all,i,IND) TRNSTX(i) = sum{c,COM, sum{s,SRC, BADTAX(c,s,i)}};
+Write TRNSTX to file DIAG header "TRTX";
+Formula (all,i,IND) FAC(i,"ProdTax") = FAC(i,"ProdTax") + TRNSTX(i);
+! delete the bad taxes !
+ (all,c,COM)(all,s,SRC)(all,u,USR:BASIC(c,s,u)<=0) TAX(c,s,u)=0;
+
+! Optional:  enforce same margin rate for dom and imp !
+Coefficient (all,c,COM)(all,u,USR)(all,m,MAR) MARGINS_S(c,u,m) # Margins #;
+Formula (all,c,COM)(all,u,USR)(all,m,MAR)
+  MARGINS_S(c,u,m) = sum{s,SRC, MARGINS(c,s,u,m)};
+Coefficient (all,c,COM)(all,u,USR) BASIC_S(c,u);
+Formula (all,c,COM)(all,u,USR)  BASIC_S(c,u) = sum{s,SRC, BASIC(c,s,u)};
+ 
+Formula (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR:BASIC_S(c,u)>0)
+ MARGINS(c,s,u,m) = MARGINS_S(c,u,m)*[BASIC(c,s,u)/BASIC_S(c,u)];
+ 
+! See difference between new and old margins !
+Coefficient (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      DIFFMAR(c,s,u,m) # Diff b/n N&O Margins #;
+Formula     (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      DIFFMAR(c,s,u,m) = MAR_OGL(c,s,u,m) - MARGINS(c,s,u,m);
+Write DIFFMAR to file DIAG header "DIFM";
+! end option !
+
+Write
+ FAC      to file OUTFILE header "FACT";
+ BASIC    to file OUTFILE header "UBAS";
+ MARGINS  to file OUTFILE header "UMAR";
+ TAX      to file OUTFILE header "UTAX";
+ MAKE     to file OUTFILE header "MAKE";
+ STOCKS   to file OUTFILE header "STOK";
+ V1LAB    to file OUTFILE header "1LAB";
+
+Assertion  # Check nat taxes are zero when nat basic=0 #
+ (all,c,COM)(all,s,SRC)(all,u,USR: BASIC(c,s,u)<=0) TAX(c,s,u)=0;
+Assertion  # Check nat margins are zero when nat basic=0 # 
+(all,c,COM)(all,s,SRC)(all,u,USR: BASIC(c,s,u)<=0)(all,m,MAR)MARGINS(c,s,u,m)=0;
+
+Coefficient
+ (all,c,COM)(all,i,IND)            INVSHR(c,i) # Investment splitting shares #;
+ (all,c,COM)(all,s,SRC)(all,i,IND) V2PUR(c,s,i);
+ (all,c,COM)(all,i,IND)            V2PUR_S(c,i);
+ (all,c,COM)                       V2PUR_SI(c);
+ 
+Formula
+ (all,c,COM)(all,s,SRC)(all,i,IND)
+    V2PUR(c,s,i) = V2BAS(c,s,i) + V2TAX(c,s,i) + sum{m,MAR, V2MAR(c,s,i,m)};
+ (all,c,COM)(all,i,IND) V2PUR_S(c,i) = sum{s,SRC, V2PUR(c,s,i)};
+ (all,c,COM) V2PUR_SI(c) = sum{s,SRC,sum{i,IND, V2PUR(c,s,i)}};
+ (all,c,COM)(all,i,IND) INVSHR(c,i) = 0;
+ (all,c,COM)(all,i,IND:V2PUR_SI(c)>0) INVSHR(c,i) = V2PUR_S(c,i)/V2PUR_SI(c);
+ 
+Write INVSHR to file OUTFILE header "ISHR";
+
+Coefficient (all,c,COM) ARMSIGMA(c) # Imp dom Armington #;
+Read  ARMSIGMA from file INFILE header "1ARM";
+Write ARMSIGMA to file ELAST header "P015" longname "Imp/dom Armington elast";
+
+Transfer "P028" from file INFILE to file ELAST;
+Transfer "P018" from file INFILE to file ELAST;
+Transfer "P021" from file INFILE to file ELAST;
+Transfer "XPEL" from file INFILE to file ELAST;
+Transfer "SLAB" from file INFILE to file ELAST;
+Transfer "SCET" from file INFILE to file ELAST;
+
+Coefficient
+(all,i,IND) COSTS(i) # Industry costs #;
+(all,i,IND) DIFFIND(i) # COSTS(i) - MAKE_C(i) - STOCKS(i) #;
+(all,c,COM) SALES(c) # Non-inventory sales #;
+(all,c,COM) DIFFCOM(c) # SALES(c) - MAKE_I(c) #;
+(all,m,MAR) MARSALES(m) # All margin sales #;
+Formula
+(all,i,IND) COSTS(i) = sum{c,COM, sum{s,SRC,
+BASIC(c,s,i)+TAX(c,s,i)+ sum{m,MAR, MARGINS(c,s,i,m)}}}
++ sum{g,FACTOR, FAC(i,g)};
+(all,i,IND) DIFFIND(i) = COSTS(i) - MAKE_C(i) - STOCKS(i);
+
+Formula
+(all,c,COM) SALES(c) = sum{u,USR,BASIC(c,"dom",u)};
+(all,m,MAR) MARSALES(m) = sum{c,COM,sum{u,USR,sum{s,SRC,MARGINS(c,s,u,m)}}};
+(all,m,MAR) SALES(m) = SALES(m) + MARSALES(m);
+(all,c,COM) DIFFCOM(c) = SALES(c) - MAKE_I(c);
+
+Write
+ DIFFIND to file DIAG header "DIND";
+ DIFFCOM to file DIAG header "DCOM";
+ STOCKS  to file DIAG header "STOK";
+ MAKE    to file DIAG header "MAKE";
+ COSTS   to file DIAG header "1TOT";
+ SALES   to file DIAG header "SLES";
+
+Formula
+ (all,i,IND) DIFFIND(i)  = DIFFIND(i)/COSTS(i);
+ (all,c,COM) DIFFCOM(c)  = DIFFCOM(c)/SALES(c);
+Write
+ DIFFIND to file DIAG header "SIND" longname "DIFFIND(i)/V1TOT(i)";
+ DIFFCOM to file DIAG header "SCOM" longname "DIFFCOM(c)/SALES(c)";
+
+Assertion
+ # DIFFIND = V1TOT-MAKE_C = tiny # (all,i,IND) ABS[DIFFIND(i)] <0.001;
+ # DIFFCOM = SALES-MAKE_I = tiny # (all,c,COM) ABS[DIFFCOM(c)] <0.001;
+
+Assertion # Check MARGINS = 0 where BASIC=0 #
+(all,c,COM)(all,s,SRC)(all,u,USR: BASIC(c,s,u)=0)(all,m,MAR) MARGINS(c,s,u,m)=0;
+
+! Difference b/n MAR_OGL & new Margin !
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      DIFFMAR2(c,s,u,m) # Diff b/n N&O Margins part 2 #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,m,MAR)
+      DIFFMAR2(c,s,u,m) = MAR_OGL(c,s,u,m) - MARGINS(c,s,u,m);
+Write
+ DIFFMAR2 to file DIAG header "DFM2";
+
+! Check and normalize the regional shares R001 R002 etc !
+
+Coefficient
+(all,i,IND)(all,d,DST) R001(i,d) # Regional output shares #;
+(all,i,IND)(all,d,DST) R002(i,d) # Regional investment shares #;
+(all,c,COM)(all,d,DST) R003(c,d) # Regional consumption shares #;
+(all,c,COM)(all,d,DST) R004(c,d) # Regional export shares #;
+(all,c,COM)(all,d,DST) R005(c,d) # Regional gov shares #;
+Read
+ R001 from file INFILE header "R001";
+ R002 from file INFILE header "R002";
+ R003 from file INFILE header "R003";
+ R004 from file INFILE header "R004";
+ R005 from file INFILE header "R005";
+
+Assertion ! if below not true, program will stop with message !
+ # R001 >= 0 # (all,i,IND)(all,d,DST) R001(i,d) >= 0.0;
+ # R002 >= 0 # (all,i,IND)(all,d,DST) R002(i,d) >= 0.0;
+ # R003 >= 0 # (all,c,COM)(all,d,DST) R003(c,d) >= 0.0;
+ # R004 >= 0 # (all,c,COM)(all,d,DST) R004(c,d) >= 0.0;
+ # R005 >= 0 # (all,c,COM)(all,d,DST) R005(c,d) >= 0.0;
+
+Assertion ! if below not true, program will stop with message !
+ # R001 <= 1 # (all,i,IND)(all,d,DST) R001(i,d) <= 1.0;
+ # R002 <= 1 # (all,i,IND)(all,d,DST) R002(i,d) <= 1.0;
+ # R003 <= 1 # (all,c,COM)(all,d,DST) R003(c,d) <= 1.0;
+ # R004 <= 1 # (all,c,COM)(all,d,DST) R004(c,d) <= 1.0;
+ # R005 <= 1 # (all,c,COM)(all,d,DST) R005(c,d) <= 1.0;
+
+! Make preliminary estimate of regional shares of GDP !
+Coefficient
+ (all,r,REG) DEFREGSHR(r) # Default regional share #;
+ (all,r,REG) MINSHR(r)    # Minimum regional share #;
+             TEMTOT       # Temporary total #;
+Formula
+(all,r,REG) DEFREGSHR(r) = sum{i,IND,R001(i,r)*sum{g,FACTOR, FAC(i,g)}};
+            TEMTOT = sum{r,REG,DEFREGSHR(r)};
+(all,r,REG) DEFREGSHR(r) = DEFREGSHR(r)/TEMTOT;
+(all,r,REG) MINSHR(r)    = DEFREGSHR(r)/100000;
+
+Formula ! next section is optional: avoids zeros in the database !
+(all,i,IND)(all,d,DST:R001(i,d)<MINSHR(d)) R001(i,d) = MINSHR(d);
+(all,i,IND)(all,d,DST:R002(i,d)<MINSHR(d)) R002(i,d) = MINSHR(d);
+(all,c,COM)(all,d,DST:R003(c,d)<MINSHR(d)) R003(c,d) = MINSHR(d);
+(all,c,COM)(all,d,DST:R004(c,d)<MINSHR(d)) R004(c,d) = MINSHR(d);
+(all,c,COM)(all,d,DST:R005(c,d)<MINSHR(d)) R005(c,d) = MINSHR(d);
+
+! Normalize the shares to add to 1 !
+Coefficient
+(all,i,IND) INDTOT(i) # Temporary IND total #;
+(all,c,COM) COMTOT(c) # Temporary COM total #;
+Formula
+(all,i,IND) INDTOT(i)= sum{d,DST, R001(i,d)};
+(all,i,IND)(all,d,DST) R001(i,d) = R001(i,d)/INDTOT(i);
+(all,i,IND) INDTOT(i)= sum{d,DST, R002(i,d)};
+(all,i,IND)(all,d,DST) R002(i,d) = R002(i,d)/INDTOT(i);
+(all,c,COM) COMTOT(c)= sum{d,DST, R003(c,d)};
+(all,c,COM)(all,d,DST) R003(c,d) = R003(c,d)/COMTOT(c);
+(all,c,COM) COMTOT(c)= sum{d,DST, R004(c,d)};
+(all,c,COM)(all,d,DST) R004(c,d) = R004(c,d)/COMTOT(c);
+(all,c,COM) COMTOT(c)= sum{d,DST, R005(c,d)};
+(all,c,COM)(all,d,DST) R005(c,d) = R005(c,d)/COMTOT(c);
+
+! Next section adjusts the R001 for truly local commodities !
+Set LOCAL # Truly local commodities #
+ read elements from file REGSUPP header "RLOC";
+Subset LOCAL is subset of COM;
+! First identify local industries !
+Coefficient (all,i,IND) LOCRAT(i) # Share of output which is local #;
+Formula (all,i,IND) LOCRAT(i)=0;
+Formula (all,i,IND:MAKE_C(i)>0) LOCRAT(i)=sum{c,LOCAL,MAKE(c,i)}/MAKE_C(i);
+Set LOCIND # Local Industries= 90% of output is LOCAL commodities #
+  = (all,i,IND: LOCRAT(i)>0.9);
+Write (set) LOCIND to file DIAG header "LIND";
+
+Coefficient  (all,c,COM)(all,r,REG)
+ TOTDEMREG(c,r) # All basic + margin use of local good c, region r #;
+Formula (all,c,COM)(all,r,REG) TOTDEMREG(c,r) =
+   sum{i,IND,R001(i,r)*V1BAS(c,"dom",i) + R002(i,r)*V2BAS(c,"dom",i) }
+ +R003(c,r)*V3BAS(c,"dom") +R004(c,r)*V4BAS(c,"dom") +R005(c,r)*V5BAS(c,"dom");
+(all,c,MAR)(all,r,REG) TOTDEMREG(c,r) = TOTDEMREG(c,r)
+  + sum{u,COM, sum{s,SRC,
+      R003(u,r)*V3MAR(u,s,c) + R004(u,r)*V4MAR(u,s,c) + R005(u,r)*V5MAR(u,s,c)
+  + sum{i,IND,R001(i,r)*V1MAR(u,s,i,c) + R002(i,r)*V2MAR(u,s,i,c)}}};
+Coefficient  (all,i,IND)(all,r,REG)
+      TOTDEMINDREG(i,r) # All basic + margin use of output ind i #;
+ (all,i,IND) (all,r,REG) LOCINDSHR(i,r) # Use shares on industry basis #;
+ (all,i,LOCIND)(all,r,REG) DELR001(i,r) # Change to R001 for local industries #;
+Formula
+ (all,i,IND)(all,r,REG) TOTDEMINDREG(i,r) =
+    sum{c,COM, TOTDEMREG(c,r)*MAKE(c,i)/MAKE_I(c)};
+ (all,i,IND) INDTOT(i) = sum{r,REG, TOTDEMINDREG(i,r)};
+ (all,i,IND)(all,r,REG) LOCINDSHR(i,r) = TOTDEMINDREG(i,r)/INDTOT(i);
+ (all,i,LOCIND)(all,r,REG) DELR001(i,r) = LOCINDSHR(i,r) - R001(i,r);
+ (all,i,LOCIND)(all,r,REG) R001(i,r) = LOCINDSHR(i,r);
+Write
+ DELR001 to file DIAG header "DR01";
+ TOTDEMREG to file DIAG header "TDMR";
+ TOTDEMINDREG to file DIAG header "TDIR";
+
+Write
+ R001 to file OUTFILE header "R001" longname "Regional output shares";
+ R002 to file OUTFILE header "R002" longname "Regional investment shares";
+ R003 to file OUTFILE header "R003" longname "Regional consumption shares";
+ R004 to file OUTFILE header "R004" longname "Regional export shares";
+ R005 to file OUTFILE header "R005" longname "Regional government shares";
+
+! Read and check the distance matrix !
+Coefficient (all,r,ORG)(all,d,DST) DISTANCE(r,d) # Distance from r to d #;
+Read DISTANCE from file REGSUPP header "DIST";
+Write DISTANCE to file DIAG header "ODST" longname "Original distance matrix";
+
+! Rules for distance matrix:
+ * Distances are supposed to be shortest road or rail distances, not as the crow
+     flies.
+ * Distances are supposed to be quality-adjusted -- if the road is very bad,
+     the distance should be further.
+ * Negative elements will be set to zero
+ * Own distances [values for D(i,i)] do play a minor role (in margin
+     allocation). If you leave the D(i,i) zero, they will be set to half the
+     distance to closest neighbour.
+ * D(i,j) is set to maximum of [D(i,j), D(j,i)]
+     -- so you could leave at zero elements above [or below] the diagonal
+ * the distances are scaled so average value is 10 
+     -- so units of distance do not matter.
+ * You do not need to supply ALL distances. You could set distances between
+     each region and a few nearest neighbours. In this case the program would
+     use Floyd's Algorithm [the triangle inequality] to fill in the missing
+     values. The revised matrix is written to header DIST on the DIAG file.
+     An assertion would then fail. You would replace header DIST on the 
+     REGSUPP file with the revised DIST header on the DIAG file.
+!
+
+! Set negative elements to zero !
+Formula (all,r,ORG)(all,d,DST: DISTANCE(r,d)<0) DISTANCE(r,d) = 0;
+
+! Next part lets you leave at zero elements above [or below] the diagonal !
+! If D(r,d)=0 but D(d,r)>0, set D(r,d)=D(d,r) !
+Coefficient (all,r,ORG)(all,d,DST) TMPDIST(r,d) # temporary work matrix #;
+Formula     
+ (all,r,ORG)(all,d,DST) TMPDIST(r,d) = DISTANCE(r,d);
+ (all,r,ORG)(all,d,DST: [DISTANCE(r,d)=0] AND [DISTANCE(d,r)>0])
+                        TMPDIST(r,d) = DISTANCE(d,r);
+ (all,r,ORG)(all,d,DST) DISTANCE(r,d) = TMPDIST(r,d);
+
+! Check distance matrix symmetric 
+   -- show cases where both D(r,d) and D(d,r) were supplied, but were unequal !
+Formula (all,r,ORG)(all,d,DST) TMPDIST(r,d) = ABS[DISTANCE(r,d)-DISTANCE(d,r)];
+Write TMPDIST to file DIAG header "DERR"
+  longname "distance matrix: non-symmetric elements (should be zero)";
+
+! Make distance matrix symmetric !
+Formula
+ (all,r,ORG)(all,d,DST) TMPDIST(r,d) = MAX[DISTANCE(r,d),DISTANCE(d,r)];
+ (all,r,ORG)(all,d,DST) DISTANCE(r,d) = TMPDIST(r,d);
+
+! Create a measure of allowable error !
+Coefficient NCELL   # Number of cells>0 in distance matrix #;
+Formula     NCELL   =  sum{r,ORG, sum{d,REG: DISTANCE(r,d)>0,1}};
+Coefficient DISTTOT # Sum of distances #;
+Formula     DISTTOT = sum{r,ORG, sum{d,REG: DISTANCE(r,d)>0, DISTANCE(r,d)}};
+Coefficient AVEDIST # Average distance #;
+Formula     AVEDIST = DISTTOT/NCELL;
+Coefficient MAXERR  # Allowable error in distance matrix #;
+Formula     MAXERR  = AVEDIST/1000;
+
+! Replace zero off-diagonal cells with a large number !
+(all,r,ORG)(all,d,DST: [r<>d] and [DISTANCE(r,d)<=0]) DISTANCE(r,d) = DISTTOT;
+
+! Find distance to closest neighbour !
+Coefficient (all,r,ORG) CLOSESTDIST(r) # Distance to closest neighbour #;
+Formula     (all,r,ORG) CLOSESTDIST(r) = MINS[d,REG:d<>r, DISTANCE(r,d)];
+
+! Next will fail if you specified NO distances for a particular region !
+Assertion # At least one distance to neighbour for each region #
+ (all,r,REG) CLOSESTDIST(r) < DISTTOT;
+
+! Set zero diagonals to half of closest distance !
+Formula    (all,r,ORG:DISTANCE(r,r)=0.0) DISTANCE(r,r) = 0.5*CLOSESTDIST(r);
+
+! Check Floyd's inequality ! 
+Coefficient (all,r,ORG)(all,q,REG)(all,d,DST) DISTSAVED(r,q,d);
+Formula  (all,r,ORG)(all,q,REG)(all,d,DST)
+  DISTSAVED(r,q,d) = DISTANCE(r,d) - [DISTANCE(r,q) + DISTANCE(q,d)];
+  (all,r,ORG)(all,q,REG)(all,d,DST: DISTSAVED(r,q,d)<0) DISTSAVED(r,q,d)=0;
+! DISTSAVED(r,q,d) shows the saving you could make by going from r to d via q,
+  instead of going directly from r to d. 
+ If the distance matrix satisfied Floyd's inequality, all DISTSAVED would = 0 !
+Write DISTSAVED to file DIAG header "DSAV" longname "Floyd Errors";
+
+Coefficient
+ (all,r,ORG)(all,d,DST) NEWDIST(r,d) # Distances after Floyd corrections #;
+Formula (all,r,ORG)(all,d,DST) NEWDIST(r,d) = DISTANCE(r,d);
+
+Formula
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+! Floyd iteration: set Dist(r,d) to shortest route going via third point q !
+(all,r,ORG)(all,d,DST) TMPDIST(r,d) = MINS[q,REG,NEWDIST(r,q)+NEWDIST(q,d)];
+(all,r,ORG)(all,d,DST) NEWDIST(r,d) = MIN[NEWDIST(r,d), TMPDIST(r,d)];
+
+Write NEWDIST to file DIAG header "DIST"
+  longname "distance matrix with Floyd Corrections";
+Formula (all,r,ORG)(all,d,DST) TMPDIST(r,d) = DISTANCE(r,d) - NEWDIST(r,d);
+Write TMPDIST to file DIAG header "FLYD"
+  longname "NEWDIST savings from Floyd iterations";
+
+Write DISTANCE to file DIAG header "UDST" longname "Un-normalized distances";
+
+Assertion # Floyds condition #
+ (all,r,REG)(all,d,REG) ABS[TMPDIST(r,d)]<MAXERR;
+
+Assertion # distance(r,d)=distance(d,r) #
+ (all,r,REG)(all,d,REG) ABS[distance(r,d) - distance(d,r)] < MAXERR;
+
+! Scale distance matrix so average of cells is 10:
+                              so units of distance do not matter !
+Coefficient NREG # Number of regions #;
+Formula     NREG = sum{r,REG,1};
+Formula     NCELL = NREG*NREG;
+Formula     DISTTOT = sum{r,ORG, sum{d,REG, DISTANCE(r,d)}};
+Formula     AVEDIST = DISTTOT/NCELL; 
+Formula    (all,r,ORG)(all,d,DST) DISTANCE(r,d) = DISTANCE(r,d)*10/AVEDIST;
+
+Write DISTANCE to file OUTFILE header "DIST" longname "normalized distances";
+
+! Make preliminary estimate of
+          DISTGONE(c,s,d): Average distance travelled by goods.
+  Later, the PSTRAS job works this out properly.  !
+File  (new) DISTINIT;
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST)
+        DISTGONE(c,s,d) # Average distance travelled by goods  - from PSTRAS#;
+(all,r,DST) DISTAVE(r)  # First guess of average distance -- later overwritten#;
+
+Formula
+(all,r,DST) DISTAVE(r) = sum{q,REG,DISTANCE(q,r)}/NREG;
+(all,r,DST) DISTAVE(r) = [DISTAVE(r) + DISTANCE(r,r)]/2;
+(all,c,COM)(all,s,SRC)(all,d,DST) DISTGONE(c,s,d)  = DISTAVE(d);
+Write DISTGONE to file DISTINIT header "DGON";
+
+!end file!

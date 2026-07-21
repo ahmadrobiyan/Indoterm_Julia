@@ -1,0 +1,737 @@
+!# Checks initial ORANIG03-style database NATIONAL.HAR !
+!# writes clean copy INIT.HAR !
+!# and creates dummy files of additional data needed to build TERM database: !
+!#  DUMSUPP.HAR  dummy example REGSUPP.HAR file of needed extra regional data !
+!#  DUMSEC.AGG   dummy sector aggregation instructions !
+!#  DUMREG.AGG   dummy region aggregation instructions !
+
+! Industries with zero output, or which sell to inventories only, 
+  will give trouble !
+
+File
+      INFILE  # Input data File #;
+(new) OUTFILE # Output file #;
+(new) DIAG    # Diag file #;
+(new) DUMSUPP # Dummy file of supplementary regional data for later editing #;
+
+Set
+ REG # Regions #     read elements from file INFILE header "REG";
+ COM # Commodities # read elements from file INFILE header "COM";
+ MAR # Margin #      read elements from file INFILE header "MAR";
+ IND # Industries #  read elements from file INFILE header "IND";
+ OCC # Skills #      read elements from file INFILE header "OCC";
+ SRC # Source of Commodities #   (dom,imp);
+ ORG # Regions of origin # = REG;
+
+Subset MAR is subset of COM;
+Set NONMAR = COM - MAR;
+
+Transfer "REG" from file INFILE to file OUTFILE;
+Transfer "COM" from file INFILE to file OUTFILE;
+Transfer "MAR" from file INFILE to file OUTFILE;
+Transfer "IND" from file INFILE to file OUTFILE;
+Transfer "OCC" from file INFILE to file OUTFILE;
+
+Coefficient NREG # Number of regions #;
+Formula     NREG = sum{r,REG,1};
+Coefficient NCOM # Number of commodities #;
+Formula     NCOM = sum{c,COM,1};
+Coefficient NIND # Number of industries #;
+Formula     NIND = sum{i,IND,1};
+Coefficient NMAR # Number of margin commodities #;
+Formula     NMAR = sum{m,MAR,1};
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,i,IND) V1BAS(c,s,i) # Intermediate Basic #;
+(all,c,COM)(all,s,SRC)(all,i,IND) V2BAS(c,s,i) # Investment Basic #;
+(all,c,COM)(all,s,SRC) V3BAS(c,s) # Households Basic #;
+(all,c,COM) V4BAS(c) # Exports Basic #;
+(all,c,COM)(all,s,SRC) V5BAS(c,s) # Government Basic #;
+(all,c,COM)(all,s,SRC) V6BAS(c,s) # Inventory Changes #;
+(all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR) V1MAR(c,s,i,m)
+ # Intermediate Margins #;
+(all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR) V2MAR(c,s,i,m)
+ # Investment Margins #;
+(all,c,COM)(all,s,SRC)(all,m,MAR) V3MAR(c,s,m) # Households Margins #;
+(all,c,COM)(all,m,MAR) V4MAR(c,m) # Exports Margins #;
+(all,c,COM)(all,s,SRC)(all,m,MAR) V5MAR(c,s,m) # Government Margins #;
+(all,c,COM)(all,s,SRC)(all,i,IND) V1TAX(c,s,i) # Intermediate Tax #;
+(all,c,COM)(all,s,SRC)(all,i,IND) V2TAX(c,s,i) # Investment Tax #;
+(all,c,COM)(all,s,SRC) V3TAX(c,s) # Households Tax #;
+(all,c,COM) V4TAX(c) # Exports Tax #;
+(all,c,COM)(all,s,SRC) V5TAX(c,s) # Government Tax #;
+(all,i,IND) V1CAP(i) # Capital #;
+(all,i,IND)(all,o,OCC) V1LAB(i,o) # Labour #;
+(all,i,IND) V1LND(i) # Land #;
+(all,i,IND) V1PTX(i) # Production Tax #;
+(all,i,IND) V1OCT(i) # Other Costs #;
+(all,c,COM)(all,i,IND) MAKE(c,i) # Multiproduct Matrix #;
+(all,c,COM) V0TAR(c) # Tariff Revenue #;
+(all,i,IND) SIGMA1LAB(i) # Labour Sigma #;
+(all,i,IND) SIGMA1PRIM(i) # Primary Factor Sigma #;
+(all,c,COM) SIGMA1(c) # Intermediate Armington #;
+(all,i,IND) SIGMA1OUT(i) # Output Sigma #;
+(all,c,COM) SIGMA2(c) # Investment Armington #;
+(all,c,COM) SIGMA3(c) # Households Armington #;
+ FRISCH # Frisch Parameter #;
+(all,c,COM) EPS(c) # Household Expenditure Elasticities #;
+(all,c,COM) EXP_ELAST(c) # Individual Export Elasticities #;
+ EXP_ELAST_NT # Collective Export Elasticity #;
+(all,c,COM) ISINDIVEXP(c)
+ # Flag, >0.5 for individual export commodities, else collective export #;
+(all,c,COM) ISLOCCOM(c)
+ # Flag for regional extension, >0.5 for local coms, else national #;
+(all,i,IND)(all,r,REG) R001(i,r) # Regional output shares #;
+(all,i,IND)(all,r,REG) R002(i,r) # Regional investment shares #;
+(all,c,COM)(all,r,REG) R003(c,r) # Regional consumption shares #;
+(all,c,COM)(all,r,REG) R004(c,r) # Regional export shares #;
+(all,c,COM)(all,r,REG) R005(c,r) # Regional government shares #;
+(all,c,COM)(all,r,REG) R006(c,r) # Regional inventory shares #;
+
+Read
+ V1BAS from file INFILE header "1BAS";
+ V2BAS from file INFILE header "2BAS";
+ V3BAS from file INFILE header "3BAS";
+ V4BAS from file INFILE header "4BAS";
+ V5BAS from file INFILE header "5BAS";
+ V6BAS from file INFILE header "6BAS";
+ V1MAR from file INFILE header "1MAR";
+ V2MAR from file INFILE header "2MAR";
+ V3MAR from file INFILE header "3MAR";
+ V4MAR from file INFILE header "4MAR";
+ V5MAR from file INFILE header "5MAR";
+ V1TAX from file INFILE header "1TAX";
+ V2TAX from file INFILE header "2TAX";
+ V3TAX from file INFILE header "3TAX";
+ V4TAX from file INFILE header "4TAX";
+ V5TAX from file INFILE header "5TAX";
+ V1CAP from file INFILE header "1CAP";
+ V1LAB from file INFILE header "1LAB";
+ V1LND from file INFILE header "1LND";
+ V1PTX from file INFILE header "1PTX";
+ V1OCT from file INFILE header "1OCT";
+ MAKE from file INFILE header "MAKE";
+ V0TAR from file INFILE header "0TAR";
+ SIGMA1LAB from file INFILE header "SLAB";
+ SIGMA1PRIM from file INFILE header "P028";
+ SIGMA1 from file INFILE header "1ARM";
+ SIGMA1OUT from file INFILE header "SCET";
+ SIGMA2 from file INFILE header "2ARM";
+ SIGMA3 from file INFILE header "3ARM";
+ FRISCH from file INFILE header "P021";
+ EPS from file INFILE header "XPEL";
+ EXP_ELAST from file INFILE header "P018";
+ EXP_ELAST_NT from file INFILE header "EXNT";
+ ISINDIVEXP from file INFILE header "ITEX";
+ ISLOCCOM from file INFILE header "LCOM";
+ R001 from file INFILE header "R001";
+ R002 from file INFILE header "R002";
+ R003 from file INFILE header "R003";
+ R004 from file INFILE header "R004";
+ R005 from file INFILE header "R005";
+ R006 from file INFILE header "R006";
+
+Assertion
+# V1BAS >=0 # (all,c,COM)(all,s,SRC)(all,i,IND) V1BAS(c,s,i) >= 0.0;
+# V2BAS >=0 # (all,c,COM)(all,s,SRC)(all,i,IND) V2BAS(c,s,i) >= 0.0;
+# V3BAS >=0 # (all,c,COM)(all,s,SRC) V3BAS(c,s) >= 0.0;
+# V4BAS >=0 # (all,c,COM) V4BAS(c) >= 0.0;
+# V5BAS >=0 # (all,c,COM)(all,s,SRC) V5BAS(c,s) >= 0.0;
+# V1MAR >=0 # (all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR) V1MAR(c,s,i,m) >=0.0;
+# V2MAR >=0 # (all,c,COM)(all,s,SRC)(all,i,IND)(all,m,MAR) V2MAR(c,s,i,m) >=0.0;
+# V3MAR >=0 # (all,c,COM)(all,s,SRC)(all,m,MAR) V3MAR(c,s,m) >= 0.0;
+# V4MAR >=0 # (all,c,COM)(all,m,MAR) V4MAR(c,m) >= 0.0;
+# V5MAR >=0 # (all,c,COM)(all,s,SRC)(all,m,MAR) V5MAR(c,s,m) >= 0.0;
+# V1CAP >=0 # (all,i,IND) V1CAP(i) >= 0.0;
+# V1LAB >=0 # (all,i,IND)(all,o,OCC) V1LAB(i,o) >= 0.0;
+# V1LND >=0 # (all,i,IND) V1LND(i) >= 0.0;
+# MAKE >=0 # (all,c,COM)(all,i,IND) MAKE(c,i) >= 0.0;
+# SIGMA1LAB >=0 # (all,i,IND) SIGMA1LAB(i) >= 0.0;
+# SIGMA1PRIM >=0 # (all,i,IND) SIGMA1PRIM(i) >= 0.0;
+# SIGMA1 >=0 # (all,c,COM) SIGMA1(c) >= 0.0;
+# SIGMA1OUT >=0 # (all,i,IND) SIGMA1OUT(i) >= 0.0;
+# SIGMA2 >=0 # (all,c,COM) SIGMA2(c) >= 0.0;
+# SIGMA3 >=0 # (all,c,COM) SIGMA3(c) >= 0.0;
+# EPS >=0 # (all,c,COM) EPS(c) >= 0.0;
+# IsIndivExp >=0 # (all,c,COM) ISINDIVEXP(c) >= 0.0;
+# IsLocCom >=0 # (all,c,COM) ISLOCCOM(c) >= 0.0;
+# R001 >=0 # (all,i,IND)(all,r,REG) R001(i,r) >= 0.0;
+# R002 >=0 # (all,i,IND)(all,r,REG) R002(i,r) >= 0.0;
+# R003 >=0 # (all,c,COM)(all,r,REG) R003(c,r) >= 0.0;
+# R004 >=0 # (all,c,COM)(all,r,REG) R004(c,r) >= 0.0;
+# R005 >=0 # (all,c,COM)(all,r,REG) R005(c,r) >= 0.0;
+# R006 >=0 # (all,c,COM)(all,r,REG) R006(c,r) >= 0.0;
+# R001 <=1 # (all,i,IND)(all,r,REG) R001(i,r) <= 1.0;
+# R002 <=1 # (all,i,IND)(all,r,REG) R002(i,r) <= 1.0;
+# R003 <=1 # (all,c,COM)(all,r,REG) R003(c,r) <= 1.0;
+# R004 <=1 # (all,c,COM)(all,r,REG) R004(c,r) <= 1.0;
+# R005 <=1 # (all,c,COM)(all,r,REG) R005(c,r) <= 1.0;
+# R006 <=1 # (all,c,COM)(all,r,REG) R006(c,r) <= 1.0;
+
+Coefficient TINY # Small flow to add #;
+Formula ! TINY is proportional to average MAKE diagonal !
+ TINY = sum{c,COM, sum{i,IND, MAKE(c,i)}};
+ TINY = TINY/NCOM;
+ TINY = TINY/10000000; ! 0.013 !
+Write TINY to file DIAG header "TINY";
+
+!************* Check database adds up ****************!
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,i,IND)  V1PUR(c,s,i)  # Intermediate purch. value #;
+ (all,c,COM)(all,s,SRC)(all,i,IND)  V2PUR(c,s,i)  # Investment purch. value #;
+ (all,c,COM)(all,s,SRC)             V3PUR(c,s)    # Households purch. value #;
+ (all,c,COM)                        V4PUR(c)      # Export purch. value #;
+ (all,c,COM)(all,s,SRC)             V5PUR(c,s)    # Government purch. value #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,i,IND)
+   V1PUR(c,s,i)  = V1BAS(c,s,i) + V1TAX(c,s,i) + sum{m,MAR, V1MAR(c,s,i,m)};
+ (all,c,COM)(all,s,SRC)(all,i,IND)
+   V2PUR(c,s,i)  = V2BAS(c,s,i) + V2TAX(c,s,i) + sum{m,MAR, V2MAR(c,s,i,m)};
+ (all,c,COM)(all,s,SRC)
+   V3PUR(c,s)    = V3BAS(c,s)   + V3TAX(c,s)   + sum{m,MAR, V3MAR(c,s,m)};
+ (all,c,COM)
+   V4PUR(c)      = V4BAS(c)     + V4TAX(c)     + sum{m,MAR, V4MAR(c,m)};
+ (all,c,COM)(all,s,SRC)
+   V5PUR(c,s)    = V5BAS(c,s)   + V5TAX(c,s)   + sum{m,MAR, V5MAR(c,s,m)};
+Coefficient
+ (all,i,IND) V1LAB_O(i)   # Total labour bill in industry i #;
+Formula
+ (all,i,IND) V1LAB_O(i) = sum{o,OCC, V1LAB(i,o)};
+Coefficient (all,i,IND) V1PRIM(i) # Total factor input to industry i#;
+Formula     (all,i,IND) V1PRIM(i) = V1LAB_O(i)+ V1CAP(i) + V1LND(i);
+Coefficient
+ (all,c,COM)(all,i,IND) V1PUR_S(c,i) # Dom+imp intermediate purch. value #;
+ (all,i,IND)            V1MAT(i)     # Total intermediate cost for industry i #;
+Zerodivide default 0.5;
+Formula
+ (all,c,COM)(all,i,IND)            V1PUR_S(c,i) = sum{s,SRC, V1PUR(c,s,i)};
+ (all,i,IND)                       V1MAT(i)     = sum{c,COM, V1PUR_S(c,i)};
+Zerodivide off;
+Coefficient
+ (all,i,IND)  V1CST(i)    # Total cost of industry i #;
+ (all,i,IND)  V1TOT(i)    # Total industry cost plus tax #;
+ (all,i,IND) PTXRATE(i)   # Rate of production tax #;
+Formula
+ (all,i,IND)  V1CST(i)    = V1PRIM(i) + V1OCT(i) + V1MAT(i);
+ (all,i,IND)  V1TOT(i)    = V1CST(i) + V1PTX(i);
+ (all,i,IND)  PTXRATE(i)  = V1PTX(i)/V1CST(i);
+Write PTXRATE to file DIAG header "PTXR";
+Coefficient
+ (all,i,IND) MAKE_C(i) # All production by industry i #;
+ (all,c,COM) MAKE_I(c) # Total production of commodities #;
+Formula
+ (all,i,IND) MAKE_C(i) = sum{c,COM, MAKE(c,i)};
+ (all,c,COM) MAKE_I(c) = sum{i,IND, MAKE(c,i)};
+Coefficient
+ (all,c,COM)(all,i,IND)     V2PUR_S(c,i) # Dom+imp investment purch. value #;
+Formula
+  (all,c,COM)(all,i,IND)     V2PUR_S(c,i)  = sum{s,SRC, V2PUR(c,s,i)};
+Coefficient (all,i,IND) V2TOT(i)  # Total capital created for industry i #;
+Formula     (all,i,IND) V2TOT(i)  = sum{c,COM, V2PUR_S(c,i)};
+Coefficient
+ (all,c,COM)           V3PUR_S(c) # Dom+imp households purch. value #;
+Formula
+ (all,c,COM)           V3PUR_S(c) = sum{s,SRC, V3PUR(c,s)};
+Coefficient
+                V3TOT # Total purchases by households #;
+ (all,c,COM)  S3_S(c) # Household average budget shares #;
+               EPSTOT # Initial Average Engel elasticity: should = 1 #;
+Formula
+                V3TOT = sum{c,COM, V3PUR_S(c)};
+ (all,c,COM)  S3_S(c) = V3PUR_S(c)/V3TOT;
+             EPSTOT   = sum{c,COM, S3_S(c)*EPS(c)};
+(initial)(all,c,COM)  EPS(c)  =   EPS(c)/EPSTOT;
+Write  S3_S    to file DIAG header "CSHR";
+Set TRADEXP # Individual export commodities # = (all,c,COM: ISINDIVEXP(c)>0.5);
+Write (Set) TRADEXP  to file DIAG header "TEXP";
+Set NTRADEXP # Collective Export Commodities # = COM - TRADEXP;
+Write (Set) NTRADEXP  to file DIAG header "NTXP";
+Coefficient (all,c,COM) MARSALES(c) # Total usage for margins purposes #;
+Formula
+ (all,n,NONMAR) MARSALES(n) = 0.0;
+ (all,m,MAR)    MARSALES(m) = sum{c,COM, V4MAR(c,m) +
+                               sum{s,SRC, V3MAR(c,s,m) + V5MAR(c,s,m) +
+                                sum{i,IND, V1MAR(c,s,i,m) + V2MAR(c,s,i,m)}}};
+Set DEST # Sale Categories #
+(Interm, INVEST, HouseH, Export, GovGE, STOCKS, Margins);
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DEST) SALE(c,s,d) # Sales aggregates #;
+Formula
+ (all,c,COM)(all,s,SRC) SALE(c,s,"Interm")      = sum{i,IND, V1BAS(c,s,i)};
+ (all,c,COM)(all,s,SRC) SALE(c,s,"Invest")      = sum{i,IND, V2BAS(c,s,i)};
+ (all,c,COM)(all,s,SRC) SALE(c,s,"HouseH")      = V3BAS(c,s);
+ (all,c,COM)            SALE(c,"dom","Export")  = V4BAS(c);
+ (all,c,COM)            SALE(c,"imp","Export")  = 0;
+ (all,c,COM)(all,s,SRC) SALE(c,s,"GovGE")       = V5BAS(c,s);
+ (all,c,COM)(all,s,SRC) SALE(c,s,"Stocks")      = V6BAS(c,s);
+ (all,c,COM)            SALE(c,"dom","Margins") = MARSALES(c);
+ (all,c,COM)            SALE(c,"imp","Margins") = 0;
+Write SALE to file DIAG header "SALE";
+Coefficient (all,c,COM) V0IMP(c) # Total basic-value imports of good c #;
+Formula     (all,c,COM) V0IMP(c) = sum{d,DEST, SALE(c,"imp",d)};
+Coefficient (all,c,COM) SALES(c) # Total sales of domestic commodities #;
+Formula     (all,c,COM) SALES(c) = sum{d,DEST, SALE(c,"dom",d)};
+Coefficient (all,c,COM) DOMSALES(c) # Total sales to local market #;
+Formula     (all,c,COM) DOMSALES(c) = SALES(c) - V4BAS(c);
+Set LOCUSER # Non-export users #(Interm, INVEST, HouseH, GovGE, STOCKS,Margins);
+Subset LOCUSER is subset of DEST;
+Coefficient
+ V1TAX_CSI  # Total intermediate tax revenue #;
+ V2TAX_CSI  # Total investment tax revenue #;
+ V3TAX_CS   # Total households tax revenue #;
+ V4TAX_C    # Total export tax revenue #;
+ V5TAX_CS   # Total government tax revenue #;
+ V0TAR_C    # Total tariff revenue #;
+Formula
+ V1TAX_CSI  = sum{c,COM, sum{s,SRC, sum{i,IND, V1TAX(c,s,i)}}};
+ V2TAX_CSI  = sum{c,COM, sum{s,SRC, sum{i,IND, V2TAX(c,s,i)}}};
+ V3TAX_CS   = sum{c,COM, sum{s,SRC,            V3TAX(c,s)}};
+ V4TAX_C    = sum{c,COM,                       V4TAX(c)};
+ V5TAX_CS   = sum{c,COM, sum{s,SRC,            V5TAX(c,s)}};
+ V0TAR_C    = sum{c,COM,                       V0TAR(c)};
+Coefficient
+  V1CAP_I   # Total payments to capital #;
+  V1LAB_IO  # Total payments to labour #;
+  V1LND_I   # Total payments to land #;
+  V1PTX_I   # Total production tax/subsidy #;
+  V1OCT_I   # Total other cost ticket payments #;
+  V1PRIM_I  # Total primary factor payments#;
+  V0GDPINC  # Nominal GDP from income side #;
+  V0TAX_CSI # Total indirect tax revenue #;
+Formula
+  V1CAP_I   = sum{i,IND, V1CAP(i)};
+  V1LAB_IO  = sum{i,IND, V1LAB_O(i)};
+  V1LND_I   = sum{i,IND, V1LND(i)};
+  V1PTX_I   = sum{i,IND, V1PTX(i)};
+  V1OCT_I   = sum{i,IND, V1OCT(i)};
+  V1PRIM_I  = V1LAB_IO + V1CAP_I + V1LND_I;
+  V0TAX_CSI  = V1TAX_CSI + V2TAX_CSI + V3TAX_CS + V4TAX_C + V5TAX_CS
+               + V0TAR_C + V1OCT_I + V1PTX_I;
+  V0GDPINC  = V1PRIM_I + V0TAX_CSI;
+Write V0GDPINC to file DIAG header "GINC";
+Coefficient
+ (all,c,COM) V0CIF(c) # Total ex-duty imports of good c #;
+ V0CIF_C  # Total local currency import costs, excluding tariffs #;
+ V0IMP_C  # Total basic-value imports (includes tariffs) #;
+ V2TOT_I  # Total investment usage #;
+ V4TOT    # Total export earnings #;
+ V5TOT    # Total value of government demands #;
+ V6TOT    # Total value of inventories #;
+ V0GNE    # GNE from expenditure side #;
+ V0GDPEXP # GDP from expenditure side #;
+Formula
+ (all,c,COM) V0CIF(c) = V0IMP(c) - V0TAR(c);
+ V0CIF_C   = sum{c,COM, V0CIF(c)};
+ V0IMP_C   = sum{c,COM, V0IMP(c)};
+ V2TOT_I   = sum{i,IND, V2TOT(i)};
+ V4TOT     = sum{c,COM, V4PUR(c)};
+ V5TOT     = sum{c,COM, sum{s,SRC, V5PUR(c,s)}};
+ V6TOT     = sum{c,COM, sum{s,SRC, V6BAS(c,s)}};
+ V0GNE     = V3TOT + V2TOT_I + V5TOT + V6TOT;
+ V0GDPEXP  = V0GNE + V4TOT - V0CIF_C;
+Write V0GDPEXP to file DIAG header "GEXP";
+Write V0IMP_C to file DIAG header "VIMP";
+Set DESTPLUS # Sale Categories #
+ (Interm, INVEST, HouseH, Export, GovGE, STOCKS, Margins, Total);
+Subset DEST is subset of DESTPLUS;
+Set EXPMAC # Expenditure Aggregates #
+ (Consumption, Investment, Government, STOCKS, Exports, Imports);
+Coefficient
+ (all,i,IND) DIFFIND(i)  # COSTS-MAKE_C : should be zero #;
+ (all,c,COM) DIFFCOM(c)  # SALES-MAKE_I : should be zero #;
+Formula
+ (all,i,IND) DIFFIND(i)  = V1TOT(i) - MAKE_C(i);
+ (all,c,COM) DIFFCOM(c)  = SALES(c) - MAKE_I(c);
+Write
+ DIFFIND to file DIAG header "DIND";
+ DIFFCOM to file DIAG header "DCOM";
+ EPSTOT  to file DIAG header "ETOT";
+ MAKE    to file DIAG header "MAKE";
+ V1TOT   to file DIAG header "1TOT";
+ SALES   to file DIAG header "SLES";
+
+Assertion
+ # V1TOT>0 # (all,i,IND) V1TOT(i)>0;
+ # SALES>0 # (all,c,COM) SALES(c)>0;
+ # (STOCKS/SALES) <95% # (all,c,COM) [V6BAS(c,"dom")/SALES(c)]<0.95;
+
+Formula
+ (all,i,IND) DIFFIND(i)  = DIFFIND(i)/V1TOT(i);
+ (all,c,COM) DIFFCOM(c)  = DIFFCOM(c)/SALES(c);
+Write
+ DIFFIND to file DIAG header "SIND" longname "DIFFIND(i)/V1TOT(i)";
+ DIFFCOM to file DIAG header "SCOM" longname "DIFFCOM(c)/SALES(c)";
+Assertion
+ # DIFFIND = V1TOT-MAKE_C = tiny # (all,i,IND) ABS[DIFFIND(i)] <0.001;
+ # DIFFCOM = SALES-MAKE_I = tiny # (all,c,COM) ABS[DIFFCOM(c)] <0.001;
+ (initial) # Average Engel elasticity = 1 #  ABS[1-EPSTOT] <0.001;
+Coefficient (all,e,EXPMAC)  EXPGDP(e) # Expenditure Aggregates #;
+Formula
+ EXPGDP("Consumption") = V3TOT;
+ EXPGDP("Investment")  = V2TOT_I;
+ EXPGDP("Government")  = V5TOT;
+ EXPGDP("Stocks")      = V6TOT;
+ EXPGDP("Exports")     = V4TOT;
+ EXPGDP("Imports")     = -V0CIF_C;
+Write EXPGDP to file DIAG header "EMAC";
+Set INCMAC # Income Aggregates #
+ (Land, Labour, Capital,  IndirectTax);
+Coefficient (all,i,INCMAC)  INCGDP(i) # Income Aggregates #;
+Formula
+ INCGDP("Land")        = V1LND_I;
+ INCGDP("Labour")      = V1LAB_IO;
+ INCGDP("Capital")     = V1CAP_I;
+ INCGDP("IndirectTax") = V0TAX_CSI;
+Write INCGDP to file DIAG header "IMAC";
+Set TAXMAC # Tax Aggregates #
+  (Intermediate,Investment,Consumption,Exports,Government,OCT,ProdTax,Tariff);
+Coefficient (all,t,TAXMAC)  TAX(t) # Tax Aggregates #;
+Formula
+ TAX("Intermediate") = V1TAX_CSI;
+ TAX("Investment")   = V2TAX_CSI;
+ TAX("Consumption")  = V3TAX_CS;
+ TAX("Exports")      = V4TAX_C;
+ TAX("Government")   = V5TAX_CS;
+ TAX("OCT")          = V1OCT_I;
+ TAX("ProdTax")      = V1PTX_I;
+ TAX("Tariff")       = V0TAR_C;
+Write TAX to file DIAG header "TMAC";
+Set COSTCAT # Cost Categories #
+ (IntDom, IntImp, Margin, ComTax, Lab, Cap, Lnd, ProdTax, OCT);
+Coefficient (all,i,IND)(all,co,COSTCAT) COSTMAT(i,co) # Cost Matrix #;
+Formula
+ (all,i,IND) COSTMAT(i,"IntDom")  = sum{c,COM, V1BAS(c,"dom",i)};
+ (all,i,IND) COSTMAT(i,"IntImp")  = sum{c,COM, V1BAS(c,"imp",i)};
+ (all,i,IND) COSTMAT(i,"Margin")  =
+                      sum{c,COM, sum{s,SRC, sum{m,MAR, V1MAR(c,s,i,m)}}};
+ (all,i,IND) COSTMAT(i,"ComTax")  = sum{c,COM, sum{s,SRC, V1TAX(c,s,i)}};
+ (all,i,IND) COSTMAT(i,"Lab")     = V1LAB_O(i);
+ (all,i,IND) COSTMAT(i,"Cap")     = V1CAP(i);
+ (all,i,IND) COSTMAT(i,"Lnd")     = V1LND(i);
+ (all,i,IND) COSTMAT(i,"ProdTax") = V1PTX(i);
+ (all,i,IND) COSTMAT(i,"OCT")     = V1OCT(i);
+Write COSTMAT to file DIAG header "CSTM";
+Set
+SALECAT2 # SALE Categories # (Interm, INVEST, HouseH, Export, GovGE, STOCKS);
+FLOWTYPE # Type of flow # (Basic, Margin, TAX);
+Coefficient
+(all,c,COM)(all,f,FLOWTYPE)(all,s,SRC)(all,sa,SALECAT2) SALEMAT2(c,f,s,sa)
+    # Basic, margin and tax components of purchasers' values #;
+Formula
+(all,c,COM)(all,f,FLOWTYPE)(all,s,SRC)(all,sa,SALECAT2) SALEMAT2(c,f,s,sa)=0;
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Basic",s,"Interm") = sum{i,IND,V1BAS(c,s,i)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Tax"  ,s,"Interm") = sum{i,IND,V1TAX(c,s,i)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Margin",s,"Interm") =
+                                      sum{i,IND, sum{m,MAR, V1MAR(c,s,i,m)}};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Basic",s,"Invest") = sum{i,IND,V2BAS(c,s,i)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Tax"  ,s,"Invest") = sum{i,IND,V2TAX(c,s,i)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Margin",s,"Invest") =
+                                      sum{i,IND, sum{m,MAR, V2MAR(c,s,i,m)}};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Basic",s,"HouseH") = V3BAS(c,s);
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Tax"  ,s,"HouseH") = V3TAX(c,s);
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Margin",s,"HouseH")= sum{m,MAR,V3MAR(c,s,m)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Basic",s,"GovGE") = V5BAS(c,s);
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Tax"  ,s,"GovGE") = V5TAX(c,s);
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Margin",s,"GovGE")= sum{m,MAR,V5MAR(c,s,m)};
+(all,c,COM)            SALEMAT2(c,"Basic","dom","Export") = V4BAS(c);
+(all,c,COM)            SALEMAT2(c,"Tax"  ,"dom","Export") = V4TAX(c);
+(all,c,COM)          SALEMAT2(c,"Margin","dom","Export")= sum{m,MAR,V4MAR(c,m)};
+(all,c,COM)(all,s,SRC) SALEMAT2(c,"Basic",s,"Stocks") = V6BAS(c,s);
+Write SALEMAT2 to file DIAG header "MKUP";
+Coefficient  (all,c,COM) IMPSHR(c) # Share of imports in local market #;
+Formula      (all,c,COM) IMPSHR(c) = V0IMP(c)/[DOMSALES(c)+V0IMP(c)];
+Write IMPSHR to file DIAG header "MSHR";
+Coefficient (all,i,IND) SUPPLYELAST(i) # Short-run supply elasticity #;
+Zerodivide default 999;
+Zerodivide (nonzero_by_zero) default 999;
+Formula     (all,i,IND) SUPPLYELAST(i) =
+    SIGMA1PRIM(i)*V1LAB_O(i)*V1TOT(i)/[V1PRIM(i)*{V1CAP(i)+V1LND(i)}];
+Zerodivide off;
+Zerodivide (nonzero_by_zero) off;
+Write SUPPLYELAST to file DIAG header "SRSE";
+Set FAC # Primary Factors #  (Lab, Cap, Lnd);
+Coefficient (all,i,IND)(all,f,FAC) FACTOR(i,f) # Primary Factor Costs #;
+Formula
+ (all,i,IND) FACTOR(i,"Lab")     = V1LAB_O(i);
+ (all,i,IND) FACTOR(i,"Cap")     = V1CAP(i);
+ (all,i,IND) FACTOR(i,"Lnd")     = V1LND(i);
+Write FACTOR to file DIAG header "FACT";
+Coefficient (all,c,COM) V1PUR_SI(c)  # Dom+imp intermediate purch. value #;
+            (all,c,COM) V2PUR_SI(c)  # Dom+imp investment purch. value #;
+            (all,c,COM) V5PUR_S(c)   # Dom+imp government purch. value #;
+            (all,c,COM) V6BAS_S(c)   # Dom+imp inventories #;
+Formula     (all,c,COM) V1PUR_SI(c)  = sum{i,IND, V1PUR_S(c,i)};
+            (all,c,COM) V2PUR_SI(c)  = sum{i,IND, V2PUR_S(c,i)};
+            (all,c,COM) V5PUR_S(c)   = sum{s,SRC, V5PUR(c,s)};
+            (all,c,COM) V6BAS_S(c)   = sum{s,SRC, V6BAS(c,s)};
+Write
+ V4PUR    to file DIAG header "4PUR";
+ V1LAB_O  to file DIAG header "LAB1";
+ V1PRIM   to file DIAG header "VLAD";
+ V1PUR_SI to file DIAG header "1PUR";
+ V2PUR_SI to file DIAG header "2PUR";
+ V3PUR_S  to file DIAG header "3PUR";
+Coefficient  (all,c,COM) TARFRATE(c) # Ad valorem tariff rate #;
+Formula      (all,c,COM) TARFRATE(c) = 0;
+Formula      (all,c,COM:V0CIF(c)>0) TARFRATE(c) = V0TAR(c)/V0CIF(c);
+Write
+  TARFRATE to file DIAG header "TRAT";
+  V0TAR    to file DIAG header "0TAR";
+  V0CIF    to file DIAG header "0CIF";
+  V0IMP    to file DIAG header "0IMP";
+  V1CAP    to file DIAG header "1CAP";
+  V6BAS_S  to file DIAG header "6BSS";
+  V2TOT    to file DIAG header "2TOT";
+  V5PUR_S  to file DIAG header "5PUR";
+Assertion # V0CIF>0 if V0TAR<>0 # (all,c,COM:V0TAR(c)<>0) V0CIF(c)>0;
+
+Set LOCCOM      # Local Commodities (Set L, DPSV p.259) #
+   = (all,c,COM: ISLOCCOM(c) > 0.5 );
+Set  NATCOM = COM - LOCCOM;
+Set LOCIND # Local Industries= 90% of output is local commodities #
+  = (all,i,IND: sum{c,LOCCOM,MAKE(c,i)}/sum{c,COM,MAKE(c,i)}>0.9);
+Write
+ (Set) LOCIND to file DIAG header "LOCI";
+ (Set) LOCCOM to file DIAG header "LOCC";
+Coefficient
+(all,i,IND)(all,r,REG) REGV1LAB_O(i,r) # Labour bills #;
+(all,r,REG)            REGV1LAB_IO(r)  # Labour bills #;
+(all,r,REG)            REGINCSHR(r)  # Share region r in national labour bill #;
+Formula
+(all,i,IND)(all,r,REG) REGV1LAB_O(i,r) = V1LAB_O(i)*R001(i,r);
+(all,r,REG)            REGV1LAB_IO(r)  = sum{i,IND, REGV1LAB_O(i,r)};
+(all,r,REG)            REGINCSHR(r)  = REGV1LAB_IO(r)/ V1LAB_IO;
+Write
+ REGV1LAB_IO to file DIAG header "RV1L";
+ REGINCSHR to file DIAG header "RISR";
+ R001 to file DIAG header "R001";
+ R002 to file DIAG header "R002";
+ R003 to file DIAG header "R003";
+ R004 to file DIAG header "R004";
+ R005 to file DIAG header "R005";
+ R006 to file DIAG header "R006";
+Assertion
+# Sum-over-REG R001 = 1 # (all,i,IND) ABS[1-sum{r,REG,R001(i,r)}] <0.001;
+# Sum-over-REG R002 = 1 # (all,i,IND) ABS[1-sum{r,REG,R002(i,r)}] <0.001;
+# Sum-over-REG R003 = 1 # (all,c,COM) ABS[1-sum{r,REG,R003(c,r)}] <0.001;
+# Sum-over-REG R004 = 1 # (all,c,COM) ABS[1-sum{r,REG,R004(c,r)}] <0.001;
+# Sum-over-REG R005 = 1 # (all,c,COM) ABS[1-sum{r,REG,R005(c,r)}] <0.001;
+# Sum-over-REG R006 = 1 # (all,c,COM) ABS[1-sum{r,REG,R006(c,r)}] <0.001;
+Coefficient  (all,c,COM)(all,r,REG)
+ TOTSUPREG(c,r) # Supply of good c region r #;
+Formula      (all,c,COM)(all,r,REG)
+ TOTSUPREG(c,r) = sum{i,IND, MAKE(c,i)*R001(i,r)};
+Coefficient  (all,c,COM)(all,r,REG)
+ TOTDEMREG(c,r) # All basic + margin use of local good c, region r #;
+Formula
+ (all,c,COM)(all,r,REG) TOTDEMREG(c,r) =
+   sum{i,IND,R001(i,r)*V1BAS(c,"dom",i) + R002(i,r)*V2BAS(c,"dom",i) }
+ +           R003(c,r)*V3BAS(c,"dom")
+ +           R004(c,r)*V4BAS(c)
+ +           R005(c,r)*V5BAS(c,"dom")
+ +           R006(c,r)*V6BAS(c,"dom");
+Formula
+ (all,c,MAR)(all,r,REG) TOTDEMREG(c,r) = TOTDEMREG(c,r)
+  + sum{u,COM,R004(u,r)*V4MAR(u,c)
+  + sum{s,SRC,R003(u,r)*V3MAR(u,s,c)   + R005(u,r)*V5MAR(u,s,c)
+  + sum{i,IND,R001(i,r)*V1MAR(u,s,i,c) + R002(i,r)*V2MAR(u,s,i,c)}}};
+
+Coefficient (all,c,COM)(all,r,REG) DEMRATIO(c,r)
+ # Regional demand/supply; -ve for national coms, should be near 1 for local #;
+Formula     (all,c,COM)(all,r,REG)
+DEMRATIO(c,r) = [TINY + TOTDEMREG(c,r)]/[TINY + TOTSUPREG(c,r)];
+Formula  (all,c,NATCOM)(all,r,REG) DEMRATIO(c,r) = - DEMRATIO(c,r);
+Write
+TOTSUPREG to file DIAG header "TSPR";
+TOTDEMREG to file DIAG header "TDMR";
+DEMRATIO  to file DIAG header  "DMRT";
+Coefficient
+(all,i,IND)(all,r,REG) REGV1PRIM(i,r)  # Factor bills #;
+(all,i,IND)(all,r,REG) R00PRIM(i,r)    # Share ind i in output region r #;
+(all,r,REG)            REGV1PRIM_I(r)  # Total factor bill #;
+Formula
+(all,i,IND)(all,r,REG) REGV1PRIM(i,r)  = V1PRIM(i)*R001(i,r);
+(all,r,REG)            REGV1PRIM_I(r) = sum{i,IND,REGV1PRIM(i,r)};
+(all,i,IND)(all,r,REG) R00PRIM(i,r) = REGV1PRIM(i,r)/REGV1PRIM_I(r);
+Write R00PRIM to file DIAG header "RSRP";
+    REGV1PRIM to file DIAG header "RV1P";
+
+Coefficient
+(all,c,COM)(all,r,REG) TOTIMPREG(c,r) # All use of imported good c, region r #;
+(all,c,COM)            TOTIMP(c)      # All use of imported good c #;
+(all,r,REG)            REGIMPSHR(r)   # Share of Import use #;
+                       IMPTOT         # Temp total #;
+Formula
+ (all,c,COM)(all,r,REG) TOTIMPREG(c,r) =
+   sum{i,IND,R001(i,r)*V1BAS(c,"imp",i) + R002(i,r)*V2BAS(c,"imp",i)}
+           + R003(c,r)*V3BAS(c,"imp")
+           + R005(c,r)*V5BAS(c,"imp")
+           + R006(c,r)*V6BAS(c,"imp");
+ (all,c,COM) TOTIMP(c) = sum{r,ORG, TOTIMPREG(c,r)};
+ (all,r,REG) REGIMPSHR(r) = sum{c,COM, TOTIMPREG(c,r)}; ! a total !
+ IMPTOT = sum{r,REG, REGIMPSHR(r)};
+ (all,r,REG) REGIMPSHR(r) =  REGIMPSHR(r)/IMPTOT; ! convert to share !
+Write TOTIMPREG to file DIAG header "TIMR";
+
+! here we use regional use share of imports as a guesstimate for 
+  share of national imports, by port of entry !
+Coefficient (all,c,COM)(all,r,ORG) MSHR(c,r)
+ # Share of national imports, by port of entry #;
+Formula (all,c,COM)(all,r,ORG) MSHR(c,r) = REGIMPSHR(r);
+        (all,c,COM:TOTIMP(c)>0)(all,r,ORG) MSHR(c,r) = TOTIMPREG(c,r)/TOTIMP(c);
+Write MSHR to file DUMSUPP header "MSHR";
+! and we use regional production share of exports as a guesstimate for 
+  share of national exports, by port of exit !
+Write R004 to file DUMSUPP header "ESHR";
+
+!************* Create output file  ****************!
+Write
+ V1BAS to file OUTFILE header "1BAS" longname "Intermediate Basic";
+ V2BAS to file OUTFILE header "2BAS" longname "Investment Basic";
+ V3BAS to file OUTFILE header "3BAS" longname "Households Basic";
+ V4BAS to file OUTFILE header "4BAS" longname "Exports Basic";
+ V5BAS to file OUTFILE header "5BAS" longname "Government Basic";
+ V6BAS to file OUTFILE header "6BAS" longname "Inventory Changes";
+ V1MAR to file OUTFILE header "1MAR" longname "Intermediate Margins";
+ V2MAR to file OUTFILE header "2MAR" longname "Investment Margins";
+ V3MAR to file OUTFILE header "3MAR" longname "Households Margins";
+ V4MAR to file OUTFILE header "4MAR" longname "Exports Margins";
+ V5MAR to file OUTFILE header "5MAR" longname "Government Margins";
+ V1TAX to file OUTFILE header "1TAX" longname "Intermediate Tax";
+ V2TAX to file OUTFILE header "2TAX" longname "Investment Tax";
+ V3TAX to file OUTFILE header "3TAX" longname "Households Tax";
+ V4TAX to file OUTFILE header "4TAX" longname "Exports Tax";
+ V5TAX to file OUTFILE header "5TAX" longname "Government Tax";
+ V1CAP to file OUTFILE header "1CAP" longname "Capital";
+ V1LAB to file OUTFILE header "1LAB" longname "Labour";
+ V1LND to file OUTFILE header "1LND" longname "Land";
+ V1PTX to file OUTFILE header "1PTX" longname "Production Tax";
+ V1OCT to file OUTFILE header "1OCT" longname "Other Costs";
+ MAKE to file OUTFILE header "MAKE" longname "Multiproduct Matrix";
+ V0TAR to file OUTFILE header "0TAR" longname "Tariff Revenue";
+ SIGMA1LAB to file OUTFILE header "SLAB" longname "Labour Sigma";
+ SIGMA1PRIM to file OUTFILE header "P028" longname "Primary Factor Sigma";
+ SIGMA1 to file OUTFILE header "1ARM" longname "Intermediate Armington";
+ SIGMA1OUT to file OUTFILE header "SCET" longname "Output Sigma";
+ SIGMA2 to file OUTFILE header "2ARM" longname "Investment Armington";
+ SIGMA3 to file OUTFILE header "3ARM" longname "Households Armington";
+ FRISCH to file OUTFILE header "P021" longname "Frisch Parameter";
+ EPS to file OUTFILE header "XPEL" longname
+ "Household Expenditure Elasticities";
+ EXP_ELAST to file OUTFILE header "P018" longname
+ "Individual Export Elasticities";
+ EXP_ELAST_NT to file OUTFILE header "EXNT" longname
+ "Collective Export Elasticity";
+ ISINDIVEXP to file OUTFILE header "ITEX" longname
+ "Flag, >0.5 for individual export commodities, else collective export";
+ ISLOCCOM to file OUTFILE header "LCOM" longname
+ "Flag for regional extension, >0.5 for local coms, else national";
+ R001 to file OUTFILE header "R001" longname "Regional output shares";
+ R002 to file OUTFILE header "R002" longname "Regional investment shares";
+ R003 to file OUTFILE header "R003" longname "Regional consumption shares";
+ R004 to file OUTFILE header "R004" longname "Regional export shares";
+ R005 to file OUTFILE header "R005" longname "Regional government shares";
+! R006 to file OUTFILE header "R006" longname "Regional inventory shares";!
+
+!********************************************************************!
+! Create dummy file of supplementary regional data for later editing !
+
+! Make preliminary estimate of regional shares of GDP !
+Coefficient
+(all,r,REG) DEFREGSHR(r) # Default regional share #;
+            TEMTOT       # Temporary total #;
+Formula
+(all,r,REG) DEFREGSHR(r) = sum{i,IND,R001(i,r)*V1PRIM(i)};
+            TEMTOT = sum{r,REG,DEFREGSHR(r)};
+(all,r,REG) DEFREGSHR(r) = DEFREGSHR(r)/TEMTOT;
+
+Coefficient (all,r,REG)(all,d,REG) DISTANCE(r,d)
+ # Shortest distance from r to d #;
+Formula (all,r,REG)(all,d,REG)
+  DISTANCE(r,d) = 2 + ABS[$pos(r)-$pos(d)];
+Write DISTANCE to file DUMSUPP header "DIST";
+
+Coefficient (all,c,COM)(all,s,SRC) DISTFAC(c,s)
+ # Distance factor for gravity formula #;
+Formula (all,c,COM)(all,s,SRC)
+  DISTFAC(c,s) =  1.5*{(NCOM/2) + ABS[$pos(c) - (NCOM/2)]}/NCOM;
+Write DISTFAC to file DUMSUPP header "DFAC";
+
+Coefficient (all,r,REG)(all,m,MAR) MARWGT(r,m) # Margin weighting #;
+Formula (all,r,REG)(all,m,MAR) MARWGT(r,m) = 1.0;
+Write MARWGT to file DUMSUPP header "MWGT";
+
+Set DMAR # Distance related margins #
+ = (all,m,MAR: $pos(m)>0.5*NMAR); ! ie, second half of MAR !
+Write (Set) DMAR to file DUMSUPP header "DMAR";
+
+! We would expect that some margins (eg, retail) would be mainly sourced
+  in the region where good is used -- For these goods set LOCMAR to, say, 5.
+  Otherwise, set LOCMAR=1 !
+Coefficient (all,m,MAR) LOCMAR(m) # Tendency for margin to be locally sourced #;
+Formula     (all,m,MAR) LOCMAR(m) = 1;
+Write LOCMAR to file DUMSUPP header "LMAR";
+
+Coefficient (all,r,REG) RPOP(r) # Regional population #;
+Formula (all,r,REG) RPOP(r) = DEFREGSHR(r)*10000000;
+Write RPOP to file DUMSUPP header "PO01";
+
+Coefficient (all,c,COM) SIGMADOMDOM(c) # Between-region Armington #;
+Formula (all,c,COM) SIGMADOMDOM(c) = 5.0;
+Write SIGMADOMDOM to file DUMSUPP header "SGDD" longname
+ "Between-region Armington";
+
+Coefficient (all,m,MAR) SIGMAMAR(m)
+ # Elasticity of substitution between regions of margin production #;
+Formula (all,m,MAR) SIGMAMAR(m) = 0.2;
+Write SIGMAMAR to file DUMSUPP header "SMAR" longname
+ "Elasticity of substitution between regions of margin production";
+
+Coefficient (all,c,COM) XX(c);
+Formula (all,c,COM) XX(c) = sum{r,REG, ABS[1-DEMRATIO(c,r)]}/NREG;
+Set SELFSUFFIC = (all,c,COM: XX(c)<0.01);
+Set RLOC # Truly local commodities # = LOCCOM intersect SELFSUFFIC;
+Write (Set) RLOC to file DUMSUPP header "RLOC";
+
+! Create dummy aggregation files !
+
+File (new) SECAGG # Dummy sector aggregation instructions #;
+File (new) REGAGG # Dummy region aggregation instructions #;
+
+! identity mapping !
+Set AGGREG # Aggregated Regions # = REG;
+Write (Set) AGGREG to file REGAGG header "AREG";
+Mapping (onto) MAPREG from REG to AGGREG;
+Formula (all,r,REG) MAPREG(r)= $pos(r);
+Write (by_elements) MAPREG to file REGAGG header "MREG";
+
+Set AGGCOM # Aggregated commodities # (COM01 - COM10);
+Write (Set) AGGCOM to file SECAGG header "ACOM";
+Coefficient (all,c,COM) MPC(c);
+Formula (all,c,COM) MPC(c) = 1+TRUNC0[10*{$pos(c)-1}/NCOM];
+Mapping (onto) MAPCOM from COM to AGGCOM;
+Formula (all,c,COM) MAPCOM(c)= TRUNC0(MPC(c));
+Write (by_elements) MAPCOM to file SECAGG header "MCOM";
+
+Set AGGIND # Aggregated Industries # (IND01 - IND10);
+Write (Set) AGGIND to file SECAGG header "AIND";
+Coefficient (all,i,IND) MPI(i);
+Formula (all,i,IND) MPI(i) = 1+TRUNC0[10*{$pos(i)-1}/NIND];
+Mapping (onto) MAPIND from IND to AGGIND;
+Formula (all,i,IND) MAPIND(i)= TRUNC0(MPI(i));
+Write (by_elements) MAPIND to file SECAGG header "MIND";
+
+!
+Coefficient NIND2r # New number of industries #;
+Formula     NIND2r = 0.1+ NIND/2; 
+Coefficient (integer) NIND2 # New number of industries #;
+Formula     NIND2  = ROUND[NIND2r];  
+Set (intertemporal) AGGIND # Aggregated industries # (IND[1] - IND[NIND2]);
+Write (set) AGGIND to file SECAGG header "AIND";
+Coefficient (all,i,IND) MPI(i);
+Formula (all,i,IND) MPI(i) = ROUND[0.1+ $POS(i)/2]; 
+Mapping (onto) MAPIND from IND to AGGIND;
+Formula (all,i,IND) MAPIND(i)= TRUNC0(MPI(i)); 
+Write (by_elements) MAPIND to file SECAGG header "MIND";
+!
+!end file!

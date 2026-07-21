@@ -1,0 +1,10 @@
+auxiliary files = chkmod;
+File     INFILE = aggmod.HAR;
+File     SETS   = AGGSETS.HAR;
+File     DIAG   = dgchkmdB.HAR;
+set elements read style = flexible ;
+!File NEWSETS = AGGSETS.HAR;
+log file        = yes ; 
+check-on-read all = no ;
+
+

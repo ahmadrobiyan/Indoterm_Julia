@@ -1,0 +1,11 @@
+auxiliary files = reg2;
+!    Input files 
+File Infile =  reg1.har;     ! flows split by destination 
+File REGSUPP = regsupp.har;  ! additional necessary regional data
+!    Output files
+File OUTFILE = reg2.HAR;
+File DIAG = dgreg2.HAR;
+log file = yes ; 
+check-on-read all = no ;
+
+

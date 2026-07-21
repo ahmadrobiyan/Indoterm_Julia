@@ -2,6 +2,7 @@
 Thumbs.db
 *.log
 *.har
+!origin/**/*.har
 __pycache__/
 *.pyc
 .env

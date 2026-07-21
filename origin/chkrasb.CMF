@@ -1,0 +1,8 @@
+auxiliary files = chkras;
+File INFILE = trdras.har;
+File DIAG = dgchkrasb.HAR;
+log file = yes ; 
+check-on-read all = no ;
+
+
+

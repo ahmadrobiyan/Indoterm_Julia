@@ -1,0 +1,11 @@
+Auxiliary files =reg0;
+check-on-read all = warn;
+log file = yes ;
+!    Input files 
+File Infile =  init.har;     ! ORANIG03 input data with ORES regional shares 
+File REGSUPP = regsupp.har;  ! additional necessary regional data
+!    Output files
+File Outfile = reg0.har;     ! reformatted national database  
+File DIAG    = dgreg0.har;   ! diagnostic output 
+File ELAST   = natelast.har; ! national elasticities to be used later
+File distinit = distinit.har;! temporary estimate of distances travelled

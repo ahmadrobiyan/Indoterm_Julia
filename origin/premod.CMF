@@ -1,0 +1,15 @@
+auxiliary files = premod;
+! Input files
+File INFILE =  pstras.HAR; 
+File REGSUPP = regsupp.har;
+File ELAST   = natelast.har; ! from Reg0
+File CAPDAT  = national.har;
+! Output files
+File OUTFILE = premod.HAR;
+File NEWSETS = ORGSETS.HAR; ! used by PreAgg
+File WEIGHTS = WEIGHTS.HAR; ! used by PreAgg
+File DIAG    = dgpremod.HAR;
+log file = yes ; 
+check-on-read all = no ;
+
+

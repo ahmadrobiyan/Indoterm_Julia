@@ -1,0 +1,48 @@
+!#  Creates separate TERM sets file from main data file AGGMOD.HAR!
+! Also transfers mappings from aggsupp.har !
+File  INFILE  # Input data File [AGGMOD.HAR] #;
+      SUPP    # AggHAR supp file [AGGSUPP.HAR] #;
+(new) NEWSETS # Sets file #;
+Set
+ COM # Commodities #           read elements from file INFILE header "COM";
+ MAR # Margin coms #           read elements from file INFILE header "MAR";
+ IND # Industries #            read elements from file INFILE header "IND";
+ OCC # Skills #                read elements from file INFILE header "OCC";
+ DST # Regions of use #        read elements from file INFILE header "REGD";
+ ORG # Regions of origin #     read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+Set   REG = DST;
+Write
+(Set) COM to file NEWSETS header "COM";
+(Set) MAR to file NEWSETS header "MAR";
+(Set) IND to file NEWSETS header "IND";
+(Set) OCC to file NEWSETS header "OCC";
+(Set) DST to file NEWSETS header "REGD";
+(Set) ORG to file NEWSETS header "REGS";
+(Set) PRD to file NEWSETS header "REGP";
+(Set) REG to file NEWSETS header "REG";
+
+! Addition JMHOCT12:  Transfer original sets and mappings to sets file,
+    so can remember later what they were !
+
+Set 
+ORGREG # Disaggregated regions #     read elements from file SUPP header "REG";
+ORGCOM # Disaggregated commodities # read elements from file SUPP header "COM";
+ORGIND # Disaggregated industries  # read elements from file SUPP header "IND";
+
+Mapping (onto)        MAPREG from ORGREG to REG;
+Read    (by_elements) MAPREG from file SUPP    header "MRGS";
+Write   (set)         ORGREG to   file NEWSETS header "OREG";
+Write   (by_elements) MAPREG to   file NEWSETS header "MREG";
+
+Mapping (onto)        MAPCOM from ORGCOM to COM;
+Read    (by_elements) MAPCOM from file SUPP    header "MCOM";
+Write   (set)         ORGCOM to   file NEWSETS header "OCOM";
+Write   (by_elements) MAPCOM to   file NEWSETS header "MCOM";
+
+Mapping (onto)        MAPIND from ORGIND to IND;
+Read    (by_elements) MAPIND from file SUPP    header "MIND";
+Write   (set)         ORGIND to   file NEWSETS header "OIND";
+Write   (by_elements) MAPIND to   file NEWSETS header "MIND";
+
+! end !

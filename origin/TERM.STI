@@ -1,0 +1,22 @@
+bat  !  This runs the program in "batch" mode
+debug
+1
+63   ! report CPU times for each formula/submatrix
+
+term
+
+
+wfp
+
+
+
+
+
+
+
+
+
+
+
+
+

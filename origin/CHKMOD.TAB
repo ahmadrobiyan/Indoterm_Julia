@@ -1,0 +1,425 @@
+!# Diagnostic only: Check/summarize TERM data file before use or aggregation ! 
+File
+      INFILE # Input data File #;
+      SETS   # Input sets File #;
+(new) DIAG   # Diagnostic Output file #;
+
+Set
+ COM # Commodities #           read elements from file SETS header "COM";
+ MAR # Margin coms #           read elements from file SETS header "MAR";
+ IND # Industries #            read elements from file SETS header "IND";
+ OCC # Skills #                read elements from file SETS header "OCC";
+ DST # Regions of use #        read elements from file SETS header "REGD";
+ ORG # Regions of origin #     read elements from file SETS header "REGS";
+ PRD # Regions of production # read elements from file SETS header "REGP";
+
+Subset MAR is subset of COM;
+Set NONMAR # Non-Margin coms # = COM - MAR;
+Set SRC    # Source # (dom,imp);
+    FINDEM # Final demanders #  (HOU, INV,GOV,  Exp);
+Set USR = IND + FINDEM;
+
+Set    REG = DST intersect ORG;
+Subset REG is subset of PRD;
+
+Set INT     # Intermediate user # (Intermediate);
+Set MAINUSR # Main user groups #  = INT + FINDEM;
+Mapping (ONTO) AGGUSR from USR to MAINUSR;
+Formula
+ (all,u,IND)    AGGUSR(u) = "Intermediate";
+ (all,u,FINDEM) AGGUSR(u) = $pos(u,MAINUSR);
+
+Coefficient
+ (all,c,COM)(all,i,IND)(all,d,DST)            MAKE(c,i,d)  # MAKE #;
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) USE(c,s,u,d) # Basic flows #;
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) TAX(c,s,u,d) # Comod taxes #;
+ (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         TRADE(c,s,r,d) # Sourcing matrix #;
+(all,c,COM)(all,i,IND)(all,d,DST)
+ INVEST(c,i,d) # Investment at purchasers prices #;
+ (all,i,IND)(all,d,DST) STOCKS(i,d) # Domestic inventories #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) SUPPMAR(m,r,d,p)
+ # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+
+(all,i,IND)(all,o,OCC)(all,d,DST) VLAB(i,o,d) # Wage matrix #;
+(all,i,IND)(all,d,DST) VCAP(i,d) # Rentals to capital #;
+(all,i,IND)(all,d,DST) VLND(i,d) # Rentals to land #;
+(all,i,IND)(all,d,DST) PRODTAX(i,d) # Taxes on production #;
+
+Read
+MAKE    from file INFILE header "MAKE";
+USE     from file INFILE header "BSMR";
+TAX     from file INFILE header "UTAX";
+TRADE   from file INFILE header "TRAD";
+SUPPMAR from file INFILE header "MARS";
+TRADMAR from file INFILE header "TMAR";
+INVEST  from file INFILE header "2PUR";
+STOCKS  from file INFILE header "STOK";
+VLAB    from file INFILE header "1LAB";
+VCAP    from file INFILE header "1CAP";
+VLND    from file INFILE header "1LND";
+PRODTAX from file INFILE header "1PTX";
+
+Coefficient
+ (all,i,IND)(all,d,DST) VLAB_O(i,d)   # Total labour bill in industry i #;
+ (all,i,IND)(all,d,DST) VPRIM(i,d) # Total factor input to industry i#;
+Formula
+ (all,i,IND)(all,d,DST) VLAB_O(i,d) = sum{o,OCC, VLAB(i,o,d)};
+ (all,i,IND)(all,d,DST) VPRIM(i,d)  = VLAB_O(i,d)+ VCAP(i,d) + VLND(i,d);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+                PUR(c,s,u,d) # Purchasers values #;
+(all,c,COM)(all,u,USR)(all,d,DST)
+                PUR_S(c,u,d) # Purchasers values, sum over s #;
+(all,c,COM)(all,d,DST)
+                V3PUR_S(c,d) # Household Purchasers values #;
+(all,c,COM)(all,s,SRC)(all,mu,MAINUSR)(all,d,DST)
+                MAINUPUR(c,s,mu,d) # Purchasers values #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) PUR(c,s,u,d) =
+    USE(c,s,u,d) + TAX(c,s,u,d);
+(all,c,COM)(all,u,USR)(all,d,DST)
+                PUR_S(c,u,d) = sum{s,SRC,PUR(c,s,u,d)};
+(all,c,COM)(all,d,DST)   V3PUR_S(c,d) =   PUR_S(c,"Hou",d);
+(all,c,COM)(all,s,SRC)(all,mu,MAINUSR)(all,d,DST)
+       MAINUPUR(c,s,mu,d) = sum{k,USR: AGGUSR(k)=mu,PUR(c,s,k,d)};
+
+Coefficient
+(all,i,IND)(all,d,DST) VTOT(i,d);
+(all,i,IND)(all,d,DST) MAKE_C(i,d);
+(all,i,IND)(all,d,DST) DIFFIND(i,d);
+Formula
+(all,i,IND)(all,d,DST) VTOT(i,d)= VPRIM(i,d) + PRODTAX(i,d)
++ sum{c,COM,PUR_S(c,i,d)};
+(all,i,IND)(all,d,DST) MAKE_C(i,d)=sum{c,COM,MAKE(c,i,d)};
+(all,i,IND)(all,d,DST)
+                 DIFFIND(i,d) =  [VTOT(i,d) - STOCKS(i,d)]- MAKE_C(i,d);
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) USE_U(c,s,d)
+# Total delivered value of regional composite c,s in d #;
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+ USE_U(c,s,d) = sum{u,USR, USE(c,s,u,d)};
+
+Coefficient (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ DELIVRD(c,s,r,d) # Trade + margins #;
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ DELIVRD(c,s,r,d)= TRADE(c,s,r,d) + sum{m,MAR, TRADMAR(c,s,m,r,d)};
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DST)
+ DELIVRD_R(c,s,d) # Demand in region d for delivered goods from all regions#;
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+ DELIVRD_R(c,s,d) = sum{r,ORG,DELIVRD(c,s,r,d)};
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG) TRADE_D(c,s,r) # Total direct demands #;
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG) TRADE_D(c,s,r) = sum{d,DST, TRADE(c,s,r,d)};
+Coefficient
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    TRADMAR_CS(m,r,d) # Total demand for margin m on goods from r to d #;
+ (all,m,MAR)(all,r,ORG)(all,d,DST)    ! above should equal below !
+    SUPPMAR_P(m,r,d)  # Total demand for margin m on goods from r to d #;
+ (all,m,MAR)(all,r,ORG)(all,p,PRD)
+    SUPPMAR_D(m,r,p)  # Total demand for margin m (from p) on goods from r #;
+ (all,m,MAR)(all,p,PRD)
+    SUPPMAR_RD(m,p)   # Total demand for margin m produced in p #;
+Formula
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    SUPPMAR_P(m,r,d)  = sum{p,PRD, SUPPMAR(m,r,d,p)};
+ (all,m,MAR)(all,r,ORG)(all,p,PRD)
+    SUPPMAR_D(m,r,p)  = sum{d,DST, SUPPMAR(m,r,d,p)};
+ (all,m,MAR)(all,p,PRD)
+    SUPPMAR_RD(m,p)   = sum{r,ORG, SUPPMAR_D(m,r,p)};
+Coefficient
+(all,c,COM)(all,d,DST) INVEST_I(c,d) # Investment by commodity and region #;
+(all,i,IND)(all,d,DST) INVEST_C(i,d) # Investment by industry and region #;
+Formula
+(all,c,COM)(all,d,DST) INVEST_I(c,d) = sum{i,IND,INVEST(c,i,d)};
+(all,i,IND)(all,d,DST) INVEST_C(i,d) = sum{c,COM,INVEST(c,i,d)};
+
+Coefficient (all,c,COM)(all,d,ORG) MAKE_I(c,d);
+Formula
+(all,c,COM)(all,d,ORG) MAKE_I(c,d)= 0;
+(all,c,COM)(all,d,REG) MAKE_I(c,d)=sum{i,IND,MAKE(c,i,d)};
+
+Coefficient
+ (all,c,COM)(all,r,ORG) IMPORT(c,r) # Imports, by port of entry #;
+ (all,c,COM) NATIMP(c) # Imports #;
+
+Formula
+ (all,c,COM)(all,r,ORG) IMPORT(c,r)= sum{d,DST,TRADE(c,"imp",r,d)};
+ (all,c,COM) NATIMP(c) = sum{r,ORG,  IMPORT(c,r)};
+
+Write
+ MAINUPUR to file DIAG header "MPUR";
+ PUR to file DIAG header "UPUR";
+ VTOT to file DIAG header "COST";
+ MAKE_C to file DIAG header "MAKC";
+ DIFFIND to file DIAG header "DIND";
+ NATIMP to file DIAG header "NTMP";
+ INVEST_C to file DIAG header "NDNV";
+ USE_U to file DIAG header "USEU";
+ DELIVRD_R to file DIAG header "DVDR";
+
+Zerodivide default 1;
+
+Coefficient
+ (all,i,IND)(all,d,DST) CHECKA(i,d) # Net Output - MAKE_C #;
+ (all,i,IND)(all,d,DST) CKRATA(i,d) # Net Output / MAKE_C #;
+Formula
+(all,i,IND)(all,d,DST) CHECKA(i,d) = [VTOT(i,d) - STOCKS(i,d)] - MAKE_C(i,d);
+(all,i,IND)(all,d,DST) CKRATA(i,d) = [VTOT(i,d) - STOCKS(i,d)] / MAKE_C(i,d);
+Write
+ CHECKA to file DIAG header "CHKA";
+ CKRATA to file DIAG header "CKRA";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) CHECKB(c,s,d) # USE_U - DELIVRD_R #;
+(all,c,COM)(all,s,SRC)(all,d,DST) CKRATB(c,s,d) # USE_U / DELIVRD_R #;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) CHECKB(c,s,d) = USE_U(c,s,d)-DELIVRD_R(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) CKRATB(c,s,d) = USE_U(c,s,d)/DELIVRD_R(c,s,d);
+Write
+ CHECKB to file DIAG header "CHKB";
+ CKRATB to file DIAG header "CKRB";
+
+Coefficient
+ (all,c,COM)(all,r,REG) CHECKC(c,r) # MAKE_I - demands #;
+ (all,c,COM)(all,r,REG) CKRATC(c,r) # MAKE_I / demands #;
+ (all,c,COM)(all,r,REG) DEMANDS(c,r) # Demands #;
+Formula
+ (all,c,COM)(all,r,REG) DEMANDS(c,r) = TRADE_D(c,"dom",r);
+ (all,m,MAR)(all,r,REG) DEMANDS(m,r) = DEMANDS(m,r) + SUPPMAR_RD(m,r);
+ (all,c,COM)(all,r,REG) CHECKC(c,r)  = MAKE_I(c,r) - DEMANDS(c,r);
+ (all,c,COM)(all,r,REG) CKRATC(c,r)  = MAKE_I(c,r) / DEMANDS(c,r);
+Write
+ CHECKC to file DIAG header "CHKC";
+ CKRATC to file DIAG header "CKRC";
+ MAKE_I to file DIAG header "MAKI";
+ DEMANDS to file DIAG header "DMDS";
+
+Coefficient
+(all,m,MAR)(all,r,ORG)(all,d,DST) CHECKD(m,r,d) # TRADMAR_CS - SUPPMAR_P #;
+(all,m,MAR)(all,r,ORG)(all,d,DST) CKRATD(m,r,d) # TRADMAR_CS / SUPPMAR_P #;
+Formula
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+   CHECKD(m,r,d) = TRADMAR_CS(m,r,d) - SUPPMAR_P(m,r,d);
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+   CKRATD(m,r,d) = TRADMAR_CS(m,r,d) / SUPPMAR_P(m,r,d);
+Write
+TRADMAR_CS to file DIAG header "TRCS";
+ SUPPMAR_P to file DIAG header "SUMP";
+ CHECKD to file DIAG header "CHKD";
+ CKRATD to file DIAG header "CKRD";
+
+Coefficient
+(all,c,COM)(all,d,DST) CHECKE(c,d) # INVEST_I - PUR_S(inv) #;
+(all,c,COM)(all,d,DST) CKRATE(c,d) # INVEST_I / PUR_S(inv) #;
+Formula (all,c,COM)(all,d,DST) CHECKE(c,d) = INVEST_I(c,d) - PUR_S(c,"Inv",d);
+ (all,c,COM)(all,d,DST) CKRATE(c,d)   = INVEST_I(c,d) / PUR_S(c,"Inv",d);
+Write
+ CHECKE to file DIAG header "CHKE" longname "INVEST_I - PUR_S(inv)";
+ CKRATE to file DIAG header "CKRE" longname "INVEST_I / PUR_S(inv)";
+Zerodivide off;
+
+Set CONSTRAINTS (A,B,c,d,E);
+Coefficient (all,c,CONSTRAINTS) SUMABS(c) # Sum absolute errors #;
+Formula
+ SUMABS("A") = sum{i,IND, sum{d,DST,            ABS[CHECKA(i,d)]}};
+ SUMABS("B") = sum{c,COM, sum{s,SRC, sum{d,DST, ABS[CHECKB(c,s,d)]}}};
+ SUMABS("C") = sum{c,COM, sum{r,REG,            ABS[CHECKC(c,r)]}};
+ SUMABS("D") = sum{m,MAR, sum{r,ORG, sum{d,DST, ABS[CHECKD(m,r,d)]}}};
+ SUMABS("E") = sum{c,COM, sum{d,DST,            ABS[CHECKE(c,d)]}};
+Write SUMABS to file DIAG header "SMAB";
+
+! check regional Engel elasticities average unity !
+Coefficient
+(all,d,DST) V3TOT(d) # Consumption by region #;
+(all,c,COM)(all,d,DST) EPS(c,d) # Expenditure elasticities #;
+(all,d,DST) EPSTOT(d) # Average of expenditure elasticities #;
+Read EPS from file INFILE header "XPEL";
+Formula
+(all,d,DST) V3TOT(d)  = sum{c,COM,V3PUR_S(c,d)};
+(all,d,DST) EPSTOT(d) = sum{c,COM,V3PUR_S(c,d)* EPS(c,d)}/V3TOT(d);
+Write EPSTOT to file DIAG header "ETOT";
+
+! Summary: matrix of industry costs !
+
+Set COSTCAT # Cost Categories #
+ (DomUSE,ImpUSE, ComTax, Labour, Capital, Land, PRODTAX);
+Coefficient
+(all,i,IND)(all,co,COSTCAT)(all,d,DST) COSTMAT(i,co,d) # Cost Matrix #;
+Formula
+(all,i,IND)(all,co,COSTCAT)(all,d,DST) COSTMAT(i,co,d) =0;
+(all,i,IND)(all,d,REG) COSTMAT(i,"DomUSE",d)=sum{c,COM,USE(c,"dom",i,d)};
+(all,i,IND)(all,d,REG) COSTMAT(i,"ImpUSE",d)=sum{c,COM,USE(c,"imp",i,d)};
+(all,i,IND)(all,d,REG) COSTMAT(i,"ComTax",d)
+                              =sum{c,COM,sum{s,SRC,TAX(c,s,i,d)}};
+(all,i,IND)(all,d,REG) COSTMAT(i,"Labour",d)  = VLAB_O(i,d);
+(all,i,IND)(all,d,REG) COSTMAT(i,"Capital",d) = VCAP(i,d);
+(all,i,IND)(all,d,REG) COSTMAT(i,"Land",d)    = VLND(i,d);
+(all,i,IND)(all,d,REG) COSTMAT(i,"ProdTax",d) = PRODTAX(i,d);
+Write COSTMAT to file DIAG header "CSTM";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,MAINUSR)(all,d,DST) AGGUSE(c,s,u,d)
+     # Basic + Margin flows by main user and dest #;
+(all,c,COM)(all,s,SRC)(all,u,MAINUSR)(all,d,DST) USHR(c,s,u,d)
+     # User shares #;
+(all,c,COM)(all,s,SRC)(all,d,DST) AGGUSE_U(c,s,d)
+     # Basic + Margin flows by dest #;
+
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)(all,u,MAINUSR)
+   BIGSALES(c,s,r,d,u) # Non-Margin Sales Matrix #;
+Zerodivide default 0;
+Formula
+(all,c,COM)(all,s,SRC)(all,u,MAINUSR)(all,d,DST)
+  AGGUSE(c,s,u,d) = sum{k,USR: AGGUSR(k)=u,USE(c,s,k,d) };
+(all,c,COM)(all,s,SRC)(all,d,DST)
+  AGGUSE_U(c,s,d) = sum{u,MAINUSR, AGGUSE(c,s,u,d)};
+(all,c,COM)(all,s,SRC)(all,u,MAINUSR)(all,d,DST)
+  USHR(c,s,u,d) = AGGUSE(c,s,u,d)/AGGUSE_U(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)(all,u,MAINUSR)
+   BIGSALES(c,s,r,d,u) = TRADE(c,s,r,d)*USHR(c,s,u,d);
+Write BIGSALES to file DIAG header "BSAL";
+Zerodivide OFF;
+
+Set SMSET (SourceReg,DestReg,ProdReg);
+Coefficient (all,q,REG)(all,s,SMSET)(all,m,MAR) SMSUM(q,s,m) # Margin summary #;
+Formula
+ (all,r,REG)(all,m,MAR) SMSUM(r,"SourceReg",m)
+    = sum{p,PRD, sum{d,DST, SUPPMAR(m,r,d,p)}};
+ (all,d,REG)(all,m,MAR) SMSUM(d,"DestReg",m)
+    = sum{r,ORG, sum{p,PRD, SUPPMAR(m,r,d,p)}};
+ (all,p,REG)(all,m,MAR) SMSUM(p,"ProdReg",m)
+    = sum{r,ORG, sum{d,DST, SUPPMAR(m,r,d,p)}};
+Write
+  SMSUM to file DIAG header "MRSM";
+
+Assertion # Check TRADMAR=0 where TRADE=0 #
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST:TRADE(c,s,r,d)=0)
+         TRADMAR(c,s,m,r,d) =0;
+
+Set GDPINC (Land, Labour, Capital, PRODTAX, ComTax);
+Coefficient (all,i,GDPINC)(all,d,DST) GDPINCSUM(d,i)# Income GDP breakdown #;
+Formula     (all,i,GDPINC)(all,d,DST) GDPINCSUM(d,i) = 0;
+(all,d,DST) GDPINCSUM(d,"Land") = sum{i,IND,VLND(i,d)};
+(all,d,DST) GDPINCSUM(d,"Labour") = sum{i,IND,VLAB_O(i,d)};
+(all,d,DST) GDPINCSUM(d,"Capital") = sum{i,IND,VCAP(i,d)};
+(all,d,DST) GDPINCSUM(d,"ProdTax") = sum{i,IND,PRODTAX(i,d)};
+(all,d,DST) GDPINCSUM(d,"ComTax") =
+              sum{u,USR, sum{c,COM,sum{s,SRC,TAX(c,s,u,d)}}};
+Write GDPINCSUM to file DIAG header "GNSM";
+
+Set GDPEXP (HOU, INV, GOV, STOCKS,
+                   Exp,  Imports, RExports,RImports,NetMar);
+Subset FINDEM is subset of GDPEXP;
+Coefficient (all,i,GDPEXP)(all,q,REG) GDPEXPSUM(q,i) # Expend GDP breakdown #;
+Formula     (all,i,GDPEXP)(all,q,REG) GDPEXPSUM(q,i) = 0;
+(all,q,REG)(all,f,FINDEM) GDPEXPSUM(q,f) = sum{c,COM, PUR_S(c,f,q)};
+(all,q,REG) GDPEXPSUM(q,"Stocks") = sum{i,IND, STOCKS(i,q)};
+(all,q,REG) GDPEXPSUM(q,"Imports") =
+     -sum{c,COM, sum{d,DST, TRADE(c,"imp",q,d)}};
+(all,q,REG) GDPEXPSUM(q,"NetMar") = sum{m,MAR, sum{r,ORG,
+      sum{d,DST, SUPPMAR(m,r,d,q)}- sum{p,PRD, SUPPMAR(m,r,q,p)} }};
+(all,q,REG) GDPEXPSUM(q,"Rexports") =
+     sum{c,COM,sum{s,SRC, sum{d,DST, TRADE(c,s,q,d)} - TRADE(c,s,q,q)}};
+(all,q,REG) GDPEXPSUM(q,"Rimports") =
+    - sum{c,COM,sum{s,SRC, sum{r,ORG, TRADE(c,s,r,q)} - TRADE(c,s,q,q)}};
+
+Write GDPEXPSUM to file DIAG header "GESM";
+
+Set GDPCMP (Expenditure, Income, diff);
+
+Coefficient (all,i,GDPCMP)(all,q,REG) GDPSUM(q,i) # GDP Expend/Income comp #;
+Formula     (all,i,GDPCMP)(all,q,REG) GDPSUM(q,i) = 0;
+(all,q,REG) GDPSUM(q,"Expenditure") = sum{i,GDPEXP, GDPEXPSUM(q,i)};
+(all,q,REG) GDPSUM(q,"Income") = sum{i,GDPINC, GDPINCSUM(q,i)};
+(all,q,REG) GDPSUM(q,"diff" )  = GDPSUM(q,"Expenditure") - GDPSUM(q,"Income");
+
+Write GDPSUM to file DIAG header "GDSM";
+
+Set TRADCAT (Production,Usage,Diagonal,Exports, Imports,ProdoverUse);
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,q,REG)(all,t,TRADCAT)
+             TRADSUM(c,s,q,t) # Trade summary #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,q,REG)(all,t,TRADCAT) TRADSUM(c,s,q,t) =0;
+ (all,c,COM)(all,s,SRC)(all,q,REG)
+   TRADSUM(c,s,q,"Production") = sum{d,DST, TRADE(c,s,q,d)};
+ (all,c,COM)(all,s,SRC)(all,q,REG)
+   TRADSUM(c,s,q,"Usage") = sum{r,ORG, TRADE(c,s,r,q)};
+ (all,c,COM)(all,s,SRC)(all,q,REG)
+   TRADSUM(c,s,q,"Diagonal") = TRADE(c,s,q,q);
+ (all,c,COM)(all,s,SRC)(all,q,REG)
+   TRADSUM(c,s,q,"Exports") = sum{d,DST:q<>d, TRADE(c,s,q,d)};
+ (all,c,COM)(all,s,SRC)(all,q,REG)
+   TRADSUM(c,s,q,"Imports") = sum{r,ORG:q<>r, TRADE(c,s,r,q)};
+ (all,c,COM)(all,s,SRC)(all,q,REG:TRADSUM(c,s,q,"Usage")<>0)
+   TRADSUM(c,s,q,"ProdoverUse") =
+     TRADSUM(c,s,q,"Production")/ TRADSUM(c,s,q,"Usage");
+Write TRADSUM to file DIAG header "TDSM";
+
+Set BASIC (BasicValue);
+Set DELVBITS = BASIC + MAR;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,m,DELVBITS)(all,r,ORG)(all,d,DST)
+         DELVBIT(c,s,m,r,d) # Components of delivered values #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,m,DELVBITS)(all,r,ORG)(all,d,DST)
+         DELVBIT(c,s,m,r,d) =0;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+         DELVBIT(c,s,m,r,d) = TRADMAR(c,s,m,r,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         DELVBIT(c,s,"BasicValue",r,d) = TRADE(c,s,r,d);
+
+Write DELVBIT to file DIAG header "DLVB";
+
+Coefficient
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) STRANGETAX(c,s,u,d)
+    # Commod taxes on zero flows #;
+Formula
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) STRANGETAX(c,s,u,d) = 0;
+ (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST: USE(c,s,u,d)=0)
+                                         STRANGETAX(c,s,u,d) = TAX(c,s,u,d);
+Write STRANGETAX to file DIAG header "STAX";
+
+Assertion # No commodity taxes on zero flows #
+(all,c,COM)(all,s,SRC)(all,u,USR)
+ (all,d,DST: USE(c,s,u,d)=0) TAX(c,s,u,d) = 0;
+
+Coefficient TOL3;
+Formula     TOL3 = 0.02;
+Assertion
+# RATA near 1 # (all,i,IND)(all,d,DST)            ABS[1-CKRATA(i,d)]   < TOL3;
+# RATB near 1 # (all,c,COM)(all,s,SRC)(all,d,DST) ABS[1-CKRATB(c,s,d)] < TOL3;
+# RATC near 1 # (all,c,COM)(all,r,REG)            ABS[1-CKRATC(c,r)]   < TOL3;
+# RATD near 1 # (all,m,MAR)(all,r,ORG)(all,d,DST) ABS[1-CKRATD(m,r,d)] < TOL3;
+# RATE near 1 # (all,c,COM)(all,d,DST)            ABS[1-CKRATE(c,d)]   < TOL3;
+
+![[!
+Coefficient TINY # Small flow to compare with errors #;
+Formula ! TINY is proportional to average MAKE diagonal !
+ TINY = sum{c,COM, sum{i,IND, sum{d,DST, MAKE(c,i,D)}}};
+ TINY = TINY/sum{c,COM,1};
+ TINY = TINY/sum{r,REG,1};
+ TINY = TINY/1000;
+Write TINY to file DIAG header "TINY";
+
+Assertion
+# CHECKA near 1 # (all,i,IND)(all,d,DST)            ABS[CHECKA(i,d)]   < TINY;
+# CHECKB near 1 # (all,c,COM)(all,s,SRC)(all,d,DST) ABS[CHECKB(c,s,d)] < TINY;
+# CHECKC near 1 # (all,c,COM)(all,r,REG)            ABS[CHECKC(c,r)]   < TINY;
+# CHECKD near 1 # (all,m,MAR)(all,r,ORG)(all,d,DST) ABS[CHECKD(m,r,d)] < TINY;
+# CHECKE near 1 # (all,c,COM)(all,d,DST)            ABS[CHECKE(c,d)]   < TINY;
+!]]!
+
+
+! end !

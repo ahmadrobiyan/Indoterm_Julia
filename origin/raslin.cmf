@@ -1,0 +1,18 @@
+auxiliary files = raslin;
+File INFILE = trdras.har;
+File DIAG = dgraslin.HAR;
+updated File INFILE = raslin.HAR;
+log file = yes ; 
+check-on-read all = no ;
+verbal description =raslin;
+scale equations = yes; 
+!method = johansen;
+  method = euler;
+ steps=3;
+!structurally singular solve modified equations = yes ; 
+Exogenous     Unity ;  
+rest endogenous;
+shock     Unity =1;   
+
+
+

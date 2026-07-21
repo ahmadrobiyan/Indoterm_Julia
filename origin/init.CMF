@@ -1,0 +1,13 @@
+Auxiliary files =init;
+check-on-read all = warn;
+assertions = yes; ! temp only 
+log file = yes;
+! input files 
+File Infile = national.har;  ! ORANIG03 input data with ORES regional shares 
+! output files
+File Outfile = init.har;     ! reformatted national database  
+File DumSupp = dumsupp.har;  ! dummy example file of needed extra regional data 
+File DIAG    = dginit.har;   ! diagnostic output 
+File SECAGG  = dumsec.agg;   ! dummy sector aggregation instructions
+File REGAGG  = dumreg.agg;   ! dummy region aggregation instructions
+

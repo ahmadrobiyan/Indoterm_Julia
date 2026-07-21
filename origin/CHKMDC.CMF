@@ -1,0 +1,10 @@
+auxiliary files = chkmod;
+set elements read style = flexible ;
+File     INFILE = term.upd;
+File     SETS   = AGGSETS.HAR;
+File     DIAG   = dgchkmdC.HAR;
+!File NEWSETS = JUNKSETS.HAR;
+log file        = yes ; 
+!check-on-read all = yes ;
+
+

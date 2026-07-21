@@ -1,0 +1,184 @@
+!# scale TRADE and margins TRADMAR and SUPPMAR to meet control totals !
+!# using conventional scaling approach !
+
+!TRADE (imports) should add to IMPORT:
+TRADE(dom)+ SUPPMAR(mar inds)  should add to MAKE_I
+TRADMAR should add to MARGINS_U
+SUPPMAR should add to TRADMAR_CS!
+
+File INFILE # Input data File #;
+File (new) DIAG # Diag file #;
+! note: main output is the update file !
+
+Variable
+(no_split) unity; ! no_split --> unity has the same value (=1) at every step !
+(change) delUnity;
+Equation E_delUnity     delUnity =  unity;
+
+Set
+ COM    # Commodities # read elements from file INFILE  header "COM";
+ MAR    # Margin coms # read elements from file INFILE  header "MAR";
+ IND    # Industries # read elements from file INFILE  header "IND";
+ OCC    # Skills # read elements from file INFILE  header "OCC";
+ DST # Regions of use # read elements from file INFILE header "REGD";
+ ORG # Regions of origin # read elements from file INFILE header "REGS";
+ PRD # Regions of production # read elements from file INFILE header "REGP";
+
+Set REG = DST intersect ORG;
+Subset REG is subset of PRD;
+Subset PRD is subset of REG;
+Subset MAR is subset of COM;
+Set NONMAR    # Non-Margin coms # = COM - MAR;
+Set SRC # Source # (dom,imp);
+
+Coefficient ! things to adjust !
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ TRADEX(c,s,r,d)     # Sourcing matrix #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+ SUPPMARX(m,r,d,p) # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+ TRADMARX(c,s,m,r,d) # Margins on trade matrix #;
+
+Read
+ TRADMARX from file INFILE header "TMAR";
+ TRADEX   from file INFILE header "TRAD";
+ SUPPMARX from file INFILE header "MARS";
+
+Coefficient ! immutable targets !
+(parameter)(all,c,COM)(all,s,SRC)(all,d,DST) BASIC_U(c,s,d) # Basic flows#;
+(parameter)(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) MARGINS_U(c,s,m,d);
+(parameter)(all,c,COM)(all,d,ORG)  MAKE_I(c,d);
+(parameter)(all,c,COM)(all,r,ORG)  IMPORT(c,r) # Imports, by port of entry #;
+Read
+ BASIC_U   from file INFILE header "BSCU";
+ MARGINS_U from file INFILE header "MRGU";
+ IMPORT    from file INFILE header "IMPS";
+ MAKE_I    from file INFILE header "COST";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+  TRADE(c,s,r,d)     # Sourcing matrix #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+  SUPPMAR(m,r,d,p) # Margins supplied by PRD on goods passing from ORG to DST #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  TRADMAR(c,s,m,r,d) # Margins on trade matrix #;
+
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)TRADE(c,s,r,d)=TRADEX(c,s,r,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)SUPPMAR(m,r,d,p)=SUPPMARX(m,r,d,p);
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  TRADMAR(c,s,m,r,d)= TRADMARX(c,s,m,r,d);
+
+Coefficient
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) # Sum of margins on trade matrix #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) TEMTOTCSMD(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) TEMTOTMRD(m,r,d) # Temp total #;
+(all,c,COM)(all,s,SRC)(all,d,DST) TEMTOTCSD(c,s,d) # Temp total #;
+
+Coefficient
+(all,c,COM)(all,r,ORG)            TEMTOTCR(c,r) # Temp total #;
+(all,c,COM)(all,s,SRC)(all,d,DST) SCALECSD(c,s,d) # Scale factor #;
+(all,c,COM)(all,r,ORG)            SCALECR(c,r) # Scale factor #;
+(all,c,NONMAR)(all,r,ORG)         SCALECR2(c,r) # Scale factor #;
+(all,m,MAR)(all,r,ORG)            SCALECR3(m,r) # Scale factor #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) SCALECSMD(c,s,m,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST) SCALEMRD(m,r,d) # Scale factor #;
+
+Formula ! to avoid warnings !
+(all,c,COM)(all,s,SRC)(all,d,DST) SCALECSD(c,s,d)=1;
+(all,c,COM)(all,r,ORG)            SCALECR(c,r)=1;
+(all,c,NONMAR)(all,r,ORG)         SCALECR2(c,r)=1;
+(all,m,MAR)(all,r,ORG)            SCALECR3(m,r)=1;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST) SCALECSMD(c,s,m,d)=1;
+(all,m,MAR)(all,r,ORG)(all,d,DST) SCALEMRD(m,r,d) =1;
+(all,c,COM)(all,r,ORG)            TEMTOTCR(c,r) =0;
+
+Formula (all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+
+Zerodivide default 1;
+
+! SCALEcr3 TRADE (mar,dom) and SUPPMAR to add to MAKE_I !
+Formula
+(all,m,MAR)(all,r,REG) TEMTOTCR(m,r) =
+  sum{d,DST, TRADE(m,"dom",r,d) + sum{rr, REG, SUPPMAR(m,rr,d,r)}};
+(all,m,MAR)(all,p,REG) SCALECR3(m,p) = MAKE_I(m,p)/TEMTOTCR(m,p);
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+     TRADE(m,"dom",r,d) = TRADE(m,"dom",r,d)*SCALECR3(m,r);
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG)
+    SUPPMAR(m,r,d,p) = SUPPMAR(m,r,d,p)*SCALECR3(m,p);
+
+! SCALEcr2 TRADE (nonmar,dom) to add to MAKE_I !
+Formula
+(all,c,NONMAR)(all,r,ORG) TEMTOTCR(c,r) = sum{d,DST, TRADE(c,"dom",r,d)};
+(all,c,NONMAR)(all,r,REG) SCALECR2(c,r) = MAKE_I(c,r)/TEMTOTCR(c,r);
+(all,c,NONMAR)(all,r,ORG)(all,d,DST)
+     TRADE(c,"dom",r,d) = TRADE(c,"dom",r,d)*SCALECR2(c,r);
+! make margins follow basic !
+(all,c,NONMAR)(all,m,MAR)(all,r,ORG)(all,d,DST)
+    TRADMAR(c,"dom",m,r,d)  = TRADMAR(c,"dom",m,r,d)*SCALECR2(c,r);
+
+! SCALEcr TRADE (imports) to add to IMPORT !
+Formula
+(all,c,COM)(all,r,ORG) TEMTOTCR(c,r) = sum{d,DST, TRADE(c,"imp",r,d)};
+Assertion # Assertion no qqiteraaXiterbb #
+  (all,c,COM)(all,r,ORG: TEMTOTCR(c,r)=0) IMPORT(c,r)=0;
+Formula
+(all,c,COM)(all,r,ORG) SCALECR(c,r) = IMPORT(c,r)/TEMTOTCR(c,r);
+(all,c,COM)(all,r,ORG)(all,d,DST)
+   TRADE(c,"imp",r,d) = TRADE(c,"imp",r,d)*SCALECR(c,r);
+! make margins follow basic !
+(all,c,COM)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMAR(c,"imp",m,r,d)  = TRADMAR(c,"imp",m,r,d)*SCALECR(c,r);
+
+! SCALEcsmd TRADMAR to add to MARGINS_U !
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+          TEMTOTCSMD(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+          SCALECSMD(c,s,m,d) = MARGINS_U(c,s,m,d)/TEMTOTCSMD(c,s,m,d);
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+TRADMAR(c,s,m,r,d)  = TRADMAR(c,s,m,r,d)*SCALECSMD(c,s,m,d);
+
+! SCALEmrd SUPPMAR  to add to TRADMAR_CS !
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         TEMTOTMRD(m,r,d) = sum{p,PRD,SUPPMAR(m,r,d,p)};
+Assertion # Assertion no EiteraaXiterbb #
+(all,m,MAR)(all,r,ORG)(all,d,DST: TEMTOTMRD(m,r,d) = 0)
+  TRADMAR_CS(m,r,d) = 0;
+Formula
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+         SCALEMRD(m,r,d) = TRADMAR_CS(m,r,d)/TEMTOTMRD(m,r,d);
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+ SUPPMAR(m,r,d,p) = SUPPMAR(m,r,d,p)*SCALEMRD(m,r,d);
+
+Formula
+! SCALEcsd TRADE to add to BASIC_U !
+(all,c,COM)(all,s,SRC)(all,d,DST)
+     TEMTOTCSD(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+Assertion # Assertion no AiteraaXiterbb #
+ (all,c,COM)(all,s,SRC)(all,d,DST: TEMTOTCSD(c,s,d)=0) BASIC_U(c,s,d)=0;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+         SCALECSD(c,s,d) = BASIC_U(c,s,d)/TEMTOTCSD(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+     TRADE(c,s,r,d) = TRADE(c,s,r,d)*SCALECSD(c,s,d);
+! make margins follow basic !
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+     TRADMAR(c,s,m,r,d)  = TRADMAR(c,s,m,r,d)*SCALECSD(c,s,d);
+
+!kkkkkkkkkkkkkkkkkk  end loop  kkkkkkkkkkkkkkkkkkkkkkkkk!
+
+Update
+(explicit) (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+TRADEX(c,s,r,d) = TRADE(c,s,r,d);
+(explicit) (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,REG!PRD!)
+   SUPPMARX(m,r,d,p) =SUPPMAR(m,r,d,p);
+(explicit) (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMARX(c,s,m,r,d) =TRADMAR(c,s,m,r,d);
+
+! end !

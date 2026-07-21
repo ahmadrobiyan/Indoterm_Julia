@@ -1,0 +1,13 @@
+auxiliary files = pstras;
+! input
+File INFILE = trdras2.har; ! raslin.har ;!rastrd.HAR;trdras.har; !
+File PREV = reg2.HAR;
+File DISTGONOLD = DISTGONE.OLD;
+! output
+File OUTFILE = pstras.HAR;
+File DIAG = dgpstras.HAR;
+File DISTGON = DISTGONE.HAR;
+log file = yes ; 
+check-on-read all = no ;
+
+

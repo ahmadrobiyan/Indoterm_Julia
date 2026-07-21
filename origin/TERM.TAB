@@ -1,0 +1,3209 @@
+! TERM: fast multi-region model designed by Mark Horridge, 2002-6 !
+! Mar 2012 -- new xuse concept allows regional wgdp identity
+            with atrad and atradmar shocks !
+! May 2013 -- now with dynamic extension !
+
+!              CONTENTS 
+ 1  Files and sets
+ 2  Values from flows data file
+ 3  Sign checks on data
+ 4  Variables used to update flows
+ 5  Updates of flows
+ 6  Basic prices: pbasic is alias of pdom and pimp
+ 7  Purchasers prices and imp/dom shares
+ 8  Dom/imp substitution by industries, households and capital creators
+ 9  Intermediate demands
+10  Occupational composition of labour demand
+11  Factor demands
+12  Output prices
+13  Household demands for imp/dom composite commodities
+14  Investment demands and indices: conditional on industry-specific investment
+15  Industry-specific investment demands
+16  Government, export, and inventory demands
+17  Add up user demands to get total regional demand for delivered goods
+18  Compute reporting variables xlocuse, xlocuse_s and xlocuse_sd
+19  Delivering goods to regions
+20  For each good and destination region, an average user chooses region source
+21  Where margins are produced
+22  MAKE: multi-product industries have CET specification
+23  Total demand for commodity c produced in r =supply commodity c produced in r
+24  Aggregate final demand price and quantity indices
+25  Decomposition: Sectoral contributions to regional GDP at factor cost
+26  Commodity tax revenues
+27  Primary Factor Aggregates
+28  Nominal Income-side GDP
+29  Principal components of real and nominal expenditure side GDP
+30  Indices and components of national GDP expend
+31  Regional macro reporting variables
+32  Aggregation of regional macro variables to national macro variables
+33  Commodity contributions to selected national results
+34  Aggregation of regional to national industry output -- value added weights
+35  National price and employment variables
+36  Contributions of endowments, tech change and tax to national real GDP
+37  COM and REG contributions to national export and import price indices
+38  Labour market closure (comparative static)
+39  Driving household consumption
+40  Exports to ROW by region of production
+41  Check of accounting identities
+42  Attack problem of reporting % change in nothing
+43  Reporting variables for inter-regional trade
+44  Local (and other) sales table for summary file
+45  Separating delivered values into basic and margins components
+46  Weights for aggregation of data or results
+47  Extra material added from Training course TERM
+48  Reporting inter-regional trade
+49  Condensation actions
+50  Dynamic Extension following ORANIGRD.DOC
+51  Dynamic extension investment rule
+52  Dynamic extension: summary tables for diagnostic purposes
+53  Dynamic extension: national reporting variables
+54  Dynamic extension: real wage adjustment mechanism
+55  Top-down district extension for TERM-style model         !
+
+! Excerpt 1 of TABLO input file: !
+! Files and sets !
+File INFILE # Base data flows and elasticities #;
+File REGSETS # Sets file #;
+File (new) SUMMARY # File for data summary and diagnostics (output)#;
+
+Set                                           ! subscript !
+ SRC (dom,imp);                                   !s!
+ COM # Commodities #
+    read elements from file REGSETS header "COM"; !c!
+ MAR # Margin commodities #
+    read elements from file REGSETS header "MAR"; !m!
+ IND # Industries #
+    read elements from file REGSETS header "IND"; !i!
+ OCC # Labour skill categories #
+    read elements from file REGSETS header "OCC"; !o!
+ DST # Regions of use #
+    read elements from file REGSETS header "REGD";!d!
+ ORG # Regions of origin #
+    read elements from file REGSETS header "REGS";!r!
+ PRD # Regions of margin production #
+    read elements from file REGSETS header "REGP";!p!
+
+Set REG = DST intersect ORG; ! special set for comparing DST ORG PRD !
+Subset
+ MAR is subset of COM;
+ REG is subset of PRD;
+ PRD is subset of ORG;
+Set
+ FINDEM  # Final demanders #  (HOU, INV, GOV, EXP);!f!
+ INT     # Intermediate #     (INT);
+ USR     # Users #            = IND + FINDEM;      !u!
+ MAINUSR # Main users #       = INT + FINDEM;
+ NONMAR  # Non-margin goods # = COM - MAR;
+ REGPLUS = REG + "National";
+ DSTPLUS = DST + "National";
+ INDPLUS = IND + "AllInds";
+
+!Coefficient DEFREGSHR # 1/[No of regions] = default regional share #;
+ Formula     DEFREGSHR = 1/[sum{r,ORG,1}]; !
+
+Zerodivide off;
+
+! Excerpt 2 of TABLO input file: !
+! Values from flows data file !
+! Domestic basic prices = Output prices
+  Imported basic prices = CIF prices
+  Delivered values = Basic + Margins
+  Purchasers' values = Basic + Margins + Tax = Delivered + Tax !
+Coefficient
+(all,c,COM)(all,i,IND)(all,d,DST)
+   MAKE(c,i,d) # MAKE multiproduction matrix #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   USE(c,s,u,d) # Delivered value of demands: basic + margins (ex-tax) #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   TAX(c,s,u,d) # Commodity taxes #;
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   TRADE(c,s,r,d) # Sourcing matrix (at basic prices) #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMAR(c,s,m,r,d) # Margins on trade matrix (at basic prices)#;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+   SUPPMAR(m,r,d,p) # Margins supplied by p on goods passing from r to d #;
+(all,c,COM)(all,i,IND)(all,d,DST)
+   INVEST(c,i,d) # Investment at purchasers prices #;
+
+(all,i,IND)(all,d,DST)            STOCKS(i,d)  # Domestic inventories #;
+(all,i,IND)(all,o,OCC)(all,d,DST) LAB(i,o,d)   # Wage matrix #;
+(all,i,IND)(all,d,DST)            CAP(i,d)     # Rentals to capital #;
+(all,i,IND)(all,d,DST)            LND(i,d)     # Rentals to land #;
+(all,i,IND)(all,d,DST)            PRODTAX(i,d) # Taxes on production #;
+(all,d,DST)                       POP(d)       # Population #;
+
+(parameter)(all,i,IND) SIGMALAB(i)    # CES substitution between skill types #;
+(parameter)(all,i,IND) SIGMAPRIM(i)   # CES substitution, primary factors #;
+(parameter)(all,c,COM) SIGMADOMIMP(c) # Substitution elast between dom/imp #;
+(parameter)(all,c,COM) SIGMADOMDOM(c) # Substitution elast between origins #;
+(parameter)(all,m,MAR) SIGMAMAR(m)    # Subst elast between margin origins #;
+(parameter)(all,i,IND) SIGMAOUT(i)    # CET transformation elasticities #;
+(parameter)(all,c,COM) EXP_ELAST(c)   # Export demand elasticities #;
+
+Read
+ MAKE    from file INFILE header "MAKE";
+ USE     from file INFILE header "BSMR";
+ TAX     from file INFILE header "UTAX";
+ TRADE   from file INFILE header "TRAD";
+ SUPPMAR from file INFILE header "MARS";
+ TRADMAR from file INFILE header "TMAR";
+ INVEST  from file INFILE header "2PUR";
+ STOCKS  from file INFILE header "STOK";
+ LAB     from file INFILE header "1LAB";
+ CAP     from file INFILE header "1CAP";
+ LND     from file INFILE header "1LND";
+ PRODTAX from file INFILE header "1PTX";
+ POP     from file INFILE header "PO01";
+
+ SIGMALAB    from file INFILE header "SLAB";
+ SIGMAPRIM   from file INFILE header "P028";
+ SIGMADOMIMP from file INFILE header "P015";
+ SIGMADOMDOM from file INFILE header "SGDD";
+ SIGMAMAR    from file INFILE header "SMAR";
+ SIGMAOUT    from file INFILE header "SCET";
+ EXP_ELAST   from file INFILE header "P018";
+
+! Write elasticities summaries to summary file !
+Set CELS # Commodity elasticities# (SIGMADOMIMP,SIGMADOMDOM,EXP_ELAST,SIGMAMAR);
+Coefficient (all,c,COM)(all,e,CELS) COMELAST(c,e) # Trade elasticities #;
+Formula (all,c,COM)(all,e,CELS) COMELAST(c,e) = 0;
+ (all,c,COM) COMELAST(c,"EXP_ELAST")   = EXP_ELAST(c);
+ (all,c,COM) COMELAST(c,"SIGMADOMIMP") = SIGMADOMIMP(c);
+ (all,c,COM) COMELAST(c,"SIGMADOMDOM") = SIGMADOMDOM(c);
+ (all,m,MAR) COMELAST(m,"SIGMAMAR")    = SIGMAMAR(m);
+Write COMELAST to file SUMMARY header "CELS";
+Set IELS # Industry elasticities # (SIGMALAB,SIGMAPRIM,SIGMAOUT);
+Coefficient (all,i,IND)(all,e,IELS) INDELAST(i,e) # Industry elasticities #;
+Formula (all,i,IND)(all,e,IELS) INDELAST(i,e) = 0;
+ (all,i,IND) INDELAST(i,"SIGMALAB")   = SIGMALAB(i);
+ (all,i,IND) INDELAST(i,"SIGMAPRIM")  = SIGMAPRIM(i);
+ (all,i,IND) INDELAST(i,"SIGMAOUT")   = SIGMAOUT(i);
+Write INDELAST to file SUMMARY header "IELS";
+
+! Excerpt 3 of TABLO input file: !
+! Sign checks on data !
+Assertion
+!(initial)! # MAKE>=0 # (all,c,COM)(all,i,IND)(all,d,DST) MAKE(c,i,d)>=0;
+(initial) # USE>=0 # (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   USE(c,s,u,d) >=0;
+(initial) # USE=0 --> TAX=0 # (all,c,COM)(all,s,SRC)(all,u,USR)
+  (all,d,DST:USE(c,s,u,d)=0) TAX(c,s,u,d)=0;
+(initial) # TRADE>=0 # (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   TRADE(c,s,r,d)>=0;
+(initial) # TRADMAR>=0 # (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMAR(c,s,m,r,d)>=0;
+(initial) # TRADE=0 --> TRADMAR=0 # (all,c,COM)(all,s,SRC)(all,r,ORG)
+   (all,d,DST:TRADE(c,s,r,d)=0)(all,m,MAR) TRADMAR(c,s,m,r,d)=0;
+(initial) # SUPPMAR>=0 # (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+   SUPPMAR(m,r,d,p) >=0;
+(initial) # INVEST>=0 # (all,c,COM)(all,i,IND)(all,d,DST)
+   INVEST(c,i,d)>=0;
+(initial) # LAB>=0 # (all,i,IND)(all,o,OCC)(all,d,DST) LAB(i,o,d) >=0;
+(initial) # CAP>=0 # (all,i,IND)(all,d,DST)            CAP(i,d)   >=0;
+(initial) # LND>=0 # (all,i,IND)(all,d,DST)            LND(i,d)   >=0;
+(initial) # SIGMALAB>=0 #    (all,i,IND) SIGMALAB(i)    >=0;
+(initial) # SIGMAPRIM>=0 #   (all,i,IND) SIGMAPRIM(i)   >=0;
+(initial) # SIGMADOMIMP>=0 # (all,c,COM) SIGMADOMIMP(c) >=0;
+(initial) # SIGMADOMDOM>=0 # (all,c,COM) SIGMADOMDOM(c) >=0;
+(initial) # SIGMAMAR>=0 #    (all,m,MAR) SIGMAMAR(m)    >=0;
+(initial) # POP>=0 #         (all,d,DST) POP(d)         >=0;
+(initial) # SIGMAOUT>=0 #    (all,i,IND) SIGMAOUT(i)    >=0;
+(initial) # EXP_ELAST>=0 #   (all,c,COM) EXP_ELAST(c)   >=0;
+
+! Excerpt 4 of TABLO input file: !
+! Variables used to update flows !
+Variable
+(all,c,COM)(all,i,IND)(all,d,REG)
+   xmake(c,i,d) # Output of good c by industry i in d #;
+(all,c,COM)(all,i,IND)(all,d,REG)
+   pmake(c,i,d) # Price received by industries #;
+(all,c,COM)(all,r,ORG)
+   pdom(c,r) # Output prices = basic prices of domestic goods #;
+(all,c,COM)(all,s,SRC)(all,r,ORG)
+   pbasic(c,s,r) # Basic prices #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   puse(c,s,d) # Delivered price of regional composite good c,s to d #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+   xsuppmar(m,r,d,p) # Demand for margin m (made in p) on goods from r to d #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+   psuppmar_p(m,r,d) # Price of composite margin m on goods from r to d #;
+(all,m,MAR)(all,r,ORG)(all,d,DST)
+   xsuppmar_p(m,r,d) # Quantity of composite margin m on goods from r to d #;
+(all,m,MAR)(all,p,PRD)
+   xsuppmar_rd(m,p) # Total demand for margins produced in p #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   xtradmar(c,s,m,r,d) # Margin m on good c,s going from r to d #;
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   xtrad(c,s,r,d) # Quantity of good c,s from r to d #;
+(all,c,COM)(all,d,DST)
+   pinvest(c,d) # Purchaser's price of good c for investment in d #;
+(all,c,COM)(all,i,IND)(all,d,DST)
+   xinvi(c,i,d) # Amount of good c for investment, industry i in d #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   ppur(c,s,u,d) # User (purchasers) prices, inc margins and taxes #;
+(all,c,COM)(all,s,SRC)(all,i,IND)(all,d,DST)
+   xint(c,s,i,d) # Intermediate demands for all-region composite #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xhou(c,s,d) # Household demands for all-region composite #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xgov(c,s,d) # Government demands for all-region composite #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xinv(c,s,d) # Investment demands for all-region composite #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xexp(c,s,d) # Export of all-region composite leaving port at d #;
+
+(all,i,IND)(all,o,OCC)(all,d,DST) xlab(i,o,d) # Labour demands #;
+(all,i,IND)(all,o,OCC)(all,d,DST) plab(i,o,d) # Wage rates #;
+(all,i,IND)(all,d,DST) xtot(i,d) # Industry outputs #;
+(all,i,IND)(all,d,DST) ptot(i,d) # Industry output prices #;
+(all,i,IND)(all,d,DST) xcap(i,d) # Capital usage #;
+(all,i,IND)(all,d,DST) xlnd(i,d) # Land usage #;
+(all,i,IND)(all,d,DST) pcap(i,d) # Rental price of capital #;
+(all,i,IND)(all,d,DST) plnd(i,d) # Rental price of land #;
+
+(all,i,IND)(all,d,DST) xstocks(i,d) # Inventories #;
+(all,d,DST) xgdpexp(d) # Real expenditure GDP #;
+(all,d,DST)    nhou(d) # Number of households #;
+
+(change)(all,i,IND)(all,d,DST)
+ delPTX(i,d) # Ordinary change in production tax revenue #;
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)(all,i,IND)
+ delTAXint(c,s,i,d)# Ordinary change in intermediate commodity tax revenue #;
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+ delTAXhou(c,s,d)# Ordinary change in household commodity tax revenue #;
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+ delTAXinv(c,s,d)# Ordinary change in investment commodity tax revenue #;
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+ delTAXgov(c,s,d)# Ordinary change in government commodity tax revenue #;
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+ delTAXexp(c,s,d)# Ordinary change in export commodity tax revenue #;
+
+! Excerpt 5 of TABLO input file: !
+! Updates of flows !
+Update
+(all,c,COM)(all,i,IND)(all,d,REG)
+   MAKE(c,i,d) = xmake(c,i,d)*pmake(c,i,d);
+(all,c,COM)(all,s,SRC)(all,i,IND)(all,d,DST)
+   USE(c,s,i,d) = xint(c,s,i,d)*puse(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   USE(c,s,"hou",d) = xhou(c,s,d)*puse(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   USE(c,s,"inv",d) = xinv(c,s,d)*puse(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   USE(c,s,"gov",d) = xgov(c,s,d)*puse(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   USE(c,s,"exp",d) = xexp(c,s,d)*puse(c,s,d);
+(change)(all,c,COM)(all,s,SRC)(all,i,IND)(all,d,DST)
+   TAX(c,s,i,d) = delTAXint(c,s,i,d);
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+   TAX(c,s,"hou",d) = delTAXhou(c,s,d);
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+   TAX(c,s,"inv",d) = delTAXinv(c,s,d);
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+   TAX(c,s,"gov",d) = delTAXgov(c,s,d);
+(change)(all,c,COM)(all,s,SRC)(all,d,DST)
+   TAX(c,s,"exp",d) = delTAXexp(c,s,d);
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   TRADE(c,s,r,d) = pbasic(c,s,r)*xtrad(c,s,r,d);
+(all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD)
+   SUPPMAR(m,r,d,p) = xsuppmar(m,r,d,p)*pdom(m,p);
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADMAR(c,s,m,r,d) =  xtradmar(c,s,m,r,d)*psuppmar_p(m,r,d);
+(all,c,COM)(all,i,IND)(all,d,DST)
+   INVEST(c,i,d) = pinvest(c,d)*xinvi(c,i,d);
+(all,i,IND)(all,o,OCC)(all,d,DST) LAB(i,o,d) = plab(i,o,d)*xlab(i,o,d);
+(all,i,IND)(all,d,DST) CAP(i,d) = pcap(i,d)*xcap(i,d);
+(all,i,IND)(all,d,DST) LND(i,d) = plnd(i,d)*xlnd(i,d);
+(all,i,IND)(all,d,DST) STOCKS(i,d) = ptot(i,d)*xstocks(i,d);
+(change)(all,i,IND)(all,d,DST) PRODTAX(i,d) = delPTX(i,d);
+(all,d,DST) POP(d)  = nhou(d);
+
+! Excerpt 6 of TABLO input file: !
+! Basic prices: pbasic is alias of pdom and pimp !
+Coefficient
+(all,s,SRC) ISDOM(s) # Binary dummy: 1 for dom, 0 for imp #;
+(all,s,SRC) ISIMP(s) # Binary dummy: 1 for imp, 0 for dom #;
+Formula
+ ISDOM("dom")=1;  ISDOM("imp")=0;
+ (all,s,SRC) ISIMP(s) = 1 - ISDOM(s);
+Variable                phi        # Exchange rate, local currency/$world #;
+ (all,c,COM)(all,r,ORG) pimp(c,r)  # Import prices, local currency #;
+ (all,c,COM) pfimp(c) # Import prices, foreign currency #;
+Equation
+ E_pimp   (all,c,COM)(all,r,ORG)
+  pimp(c,r) = pfimp(c) + phi;
+ E_pbasic (all,c,COM)(all,s,SRC)(all,r,ORG)
+  pbasic(c,s,r) = ISDOM(s)*pdom(c,r) + ISIMP(s)*pimp(c,r);
+Backsolve pbasic using E_pbasic;
+
+! Excerpt 7 of TABLO input file: !
+! Purchasers prices and imp/dom shares !
+Variable
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+   tuser(c,s,u,d) # Powers of commodity taxes #;
+(all,c,COM)(all,s,SRC) tuser_ud(c,s) # Tax shifter by commodity and source #;
+(all,c,COM)(all,d,DST) tuser_su(c,d) # Tax shifter by commodity and region #;
+(all,c,COM)            tuser_sud(c)  # Tax shifter by commodity #;
+
+! tax-inclusive user prices of delivered composites !
+Equation E_ppur # Purchasers prices #
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+ ppur(c,s,u,d) = puse(c,s,d) + tuser(c,s,u,d) + tuser_sud(c);
+
+Equation E_tuser # Tax rate driver equation #
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+     tuser(c,s,u,d) = tuser_ud(c,s) + tuser_su(c,d);
+Substitute tuser using E_tuser;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) PUR(c,s,u,d) # Purchasers values#;
+(all,c,COM)(all,s,SRC)(all,u,USR) PUR_D(c,s,u) # Purchasers values, national #;
+(all,c,COM)(all,u,USR)(all,d,DST) PUR_S(c,u,d) # Purch. values, sum over s #;
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) SRCSHR(c,s,u,d) # Imp/dom shares#;
+(all,u,USR)(all,d,DST) PUR_CS(u,d) # Expenditure on goods #;
+Zerodivide default 0.5;
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+            PUR(c,s,u,d) = USE(c,s,u,d) + TAX(c,s,u,d);
+(all,c,COM)(all,s,SRC)(all,u,USR)
+            PUR_D(c,s,u) = sum{d,DST,PUR(c,s,u,d)};
+(all,c,COM)(all,u,USR)(all,d,DST)
+            PUR_S(c,u,d) = sum{s,SRC,PUR(c,s,u,d)};
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+            SRCSHR(c,s,u,d) = PUR(c,s,u,d)/PUR_S(c,u,d);
+(all,u,USR)(all,d,DST)
+            PUR_CS(u,d)=sum{c,COM,PUR_S(c,u,d)};
+Zerodivide off;
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST) TAXRATE(c,s,u,d) # Tax rate #;
+Zerodivide default 0.0;
+Formula
+(all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+            TAXRATE(c,s,u,d) = TAX(c,s,u,d)/USE(c,s,u,d);
+Zerodivide off;
+Write TAXRATE to file SUMMARY header "TRAT";
+
+! Excerpt 8 of TABLO input file: !
+! Dom/imp substitution by industries, households and capital creators !
+Variable
+(all,c,COM)(all,u,USR)(all,d,DST) ppur_s(c,u,d) # User prices, average over s #;
+(all,c,COM)(all,d,DST) phou(c,d) # Household price of composites #;
+Equation
+E_ppur_s (all,c,COM)(all,u,USR)(all,d,DST)
+  ppur_s(c,u,d) = sum{s,SRC,SRCSHR(c,s,u,d)*ppur(c,s,u,d)};
+E_phou # Alias # (all,c,COM)(all,d,DST)
+  phou(c,d) = ppur_s(c,"hou",d);
+
+Variable
+ (all,c,COM)(all,i,IND)(all,d,DST)
+                     xint_s(c,i,d) # Industry demands for dom/imp composite #;
+(all,c,COM)(all,d,DST) xhou_s(c,d) # Household demands for dom/imp composite #;
+(all,c,COM)(all,d,DST) xinv_s(c,d) # Investment demands for dom/imp composite #;
+Equation
+E_xint (all,c,COM)(all,s,SRC)(all,i,IND)(all,d,DST)
+  xint(c,s,i,d) = xint_s(c,i,d) - SIGMADOMIMP(c)*[ppur(c,s,i,d)-ppur_s(c,i,d)];
+E_xhou (all,c,COM)(all,s,SRC)(all,d,DST)
+  xhou(c,s,d)   = xhou_s(c,d) - SIGMADOMIMP(c)*[ppur(c,s,"hou",d)-phou(c,d)];
+E_xinv (all,c,COM)(all,s,SRC)(all,d,DST)
+  xinv(c,s,d)   = xinv_s(c,d) - SIGMADOMIMP(c)*[ppur(c,s,"inv",d)-pinvest(c,d)];
+
+! Excerpt 9 of TABLO input file: !
+! Intermediate demands !
+Variable
+ (all,i,IND)(all,d,DST) atot(i,d) # All-input-augmenting technical change #;
+ (all,c,COM)(all,i,IND)(all,d,DST) aint_s(c,i,d) # Intermediate tech change #;
+ (all,i,IND)  bint_scd(i) # Driver: intermediate tech change #;
+ (all,i,IND)(all,d,DST) pint(i,d) # Intermediate effective price indices #;
+ (all,c,COM)(all,i,IND)(all,d,DST) bint_s(c,i,d) # Intermediate tech change #;
+Equation
+ E_aint_s (all,c,COM)(all,i,IND)(all,d,DST)
+   aint_s(c,i,d) = bint_scd(i) + bint_s(c,i,d);
+ E_xint_s (all,c,COM)(all,i,IND)(all,d,DST)
+   xint_s(c,i,d) = atot(i,d) + aint_s(c,i,d) + xtot(i,d)
+! Sep 06: addition of some intermediate substitution.
+    Works faster if pint is NOT substituted !
+            -0.15*{ppur_s(c,i,d) + aint_s(c,i,d) - pint(i,d)};
+ E_pint   (all,i,IND)(all,d,DST)
+   ID01(PUR_CS(i,d))*pint(i,d)
+  = sum{c,COM,PUR_S(c,i,d)*[ppur_s(c,i,d)+aint_s(c,i,d)]};
+
+! Excerpt 10 of TABLO input file: !
+! Occupational composition of labour demand !
+Coefficient
+ (all,i,IND)(all,d,DST) LAB_O(i,d)   # Total labour bill in industry i #;
+Formula
+ (all,i,IND)(all,d,DST) LAB_O(i,d) = sum{o,OCC, LAB(i,o,d)};
+Variable
+ (all,i,IND)(all,d,DST) plab_o(i,d) # Price of labour composite #;
+ (all,i,IND)(all,d,DST) xlab_o(i,d) # Effective labour input #;
+ (all,i,IND)(all,d,DST) wlab_o(i,d) # Wage bills #;
+Equation
+ E_xlab   # Demand for labour by industry and skill group #
+  (all,i,IND)(all,o,OCC)(all,d,DST)
+   xlab(i,o,d) = xlab_o(i,d) - SIGMALAB(i)*[plab(i,o,d) - plab_o(i,d)];
+ E_plab_o # Price to each industry of labour composite #
+  (all,i,IND)(all,d,DST)
+ ID01(LAB_O(i,d))*plab_o(i,d) = sum{o,OCC, LAB(i,o,d)*plab(i,o,d)};
+ E_wlab_o # Wage bills #
+  (all,i,IND)(all,d,DST)
+ ID01(LAB_O(i,d))*wlab_o(i,d) = sum{o,OCC,LAB(i,o,d)*[plab(i,o,d)+xlab(i,o,d)]};
+Backsolve wlab_o using E_wlab_o;
+
+! Excerpt 11 of TABLO input file: !
+! Factor demands !
+Coefficient (all,i,IND)(all,d,DST) PRIM(i,d) # Total factor input, industry i #;
+Formula     (all,i,IND)(all,d,DST) PRIM(i,d) = LAB_O(i,d)+ CAP(i,d) + LND(i,d);
+Variable
+ (all,i,IND)(all,d,DST) pprim(i,d)  # Effective price of primary composite #;
+ (all,i,IND)(all,d,DST) xprim(i,d)  # Primary factor composite #;
+ (all,i,IND)(all,d,DST) alab_o(i,d) # Labor-augmenting technical change #;
+ (all,i,IND)(all,d,DST) acap(i,d)   # Capital-augmenting technical change #;
+ (all,i,IND)(all,d,DST) alnd(i,d)   # Land-augmenting technical change #;
+ (all,i,IND)(all,d,DST) aprim(i,d)  # Primary-factor-augmenting tech change #;
+ (all,i,IND)(all,d,DST) wprim(i,d)  # Primary factor payments #;
+                        bprimnat    # Driver for aprim technical change #;
+ (all,i,IND)            bprim_d(i)  # Driver for aprim technical change #;
+ (all,i,IND)(all,d,DST) bprim(i,d)  # Driver for aprim technical change #;
+                        blabnat     # Driver for alab_o technical change #;
+ (all,i,IND)            blab_d(i)   # Driver for alab_o technical change #;
+ (all,i,IND)(all,d,DST) blab(i,d)   # Driver for alab_o technical change #;
+
+Equation
+ E_xlab_o  # Industry demands for effective labour #
+  (all,i,IND)(all,d,DST) xlab_o(i,d) - alab_o(i,d) =
+   xprim(i,d) - SIGMAPRIM(i)*[plab_o(i,d) + alab_o(i,d) - pprim(i,d)];
+
+ E_pcap  # Industry demands for capital #
+  (all,i,IND)(all,d,DST)  xcap(i,d) - acap(i,d) =
+   xprim(i,d) - SIGMAPRIM(i)*[pcap(i,d) + acap(i,d) - pprim(i,d)];
+
+ E_plnd  # Industry demands for land #
+  (all,i,IND)(all,d,DST)  xlnd(i,d) - alnd(i,d) =
+   xprim(i,d) - SIGMAPRIM(i)*[plnd(i,d) + alnd(i,d) - pprim(i,d)];
+
+ E_pprim  # Effective price term for factor demand equations #
+  (all,i,IND)(all,d,DST)
+   ID01(PRIM(i,d))*pprim(i,d) = LAB_O(i,d)*[plab_o(i,d) + alab_o(i,d)]
+    + CAP(i,d)*[pcap(i,d) + acap(i,d)] + LND(i,d)*[plnd(i,d) + alnd(i,d)];
+
+ E_xprim  # Use of composite primary factor #
+  (all,i,IND)(all,d,DST) xprim(i,d) = xtot(i,d)+atot(i,d)+aprim(i,d);
+
+ E_aprim  # Total factor productivity growth #
+  (all,i,IND)(all,d,DST) aprim(i,d) = bprimnat + bprim_d(i) + bprim(i,d);
+
+ E_alab_o  # Total labour productivity growth #
+  (all,i,IND)(all,d,DST) alab_o(i,d) = blabnat + blab_d(i) + blab(i,d);
+
+E_wprim  # Primary factor payments #
+ (all,i,IND)(all,d,DST)
+  ID01[PRIM(i,d)]*wprim(i,d) = CAP(i,d)  *[pcap(i,d) + xcap(i,d)]
+                            +  LND(i,d)  *[plnd(i,d) + xlnd(i,d)]
+                  + sum{o,OCC, LAB(i,o,d)*[plab(i,o,d) + xlab(i,o,d)]};
+
+Set FAC # Primary factors # (LND,LAB,CAP);
+Coefficient ! Table to see primary factor shares, etc !
+ (all,i,IND)(all,f,FAC)(all,d,DST) PRIMCOST(i,f,d) # Total factor inputs #;
+Formula
+ (all,i,IND)(all,d,DST) PRIMCOST(i,"Lnd",d) = LND(i,d);
+ (all,i,IND)(all,d,DST) PRIMCOST(i,"Lab",d) = LAB_O(i,d);
+ (all,i,IND)(all,d,DST) PRIMCOST(i,"Cap",d) = CAP(i,d);
+ Write PRIMCOST to file SUMMARY header "PCST";
+
+! Excerpt 12 of TABLO input file: !
+! Output prices !
+Coefficient  ! for reporting or analysis only !
+ (all,i,IND)(all,d,DST)  VARCST(i,d)  # Shortrun variable cost of industry i #;
+Formula
+ (all,i,IND)(all,d,DST)  VARCST(i,d)  = LAB_O(i,d)  + PUR_CS(i,d);
+Variable (all,i,IND)(all,d,DST)
+   pvar(i,d)   # Shortrun variable cost of production #;
+Equation
+E_pvar (all,i,IND)(all,d,DST)  ID01(VARCST(i,d))*[pvar(i,d)-atot(i,d)] =
+ LAB_O(i,d)*[plab_o(i,d) + alab_o(i,d)] +  PUR_CS(i,d)*pint(i,d);
+Backsolve pvar using E_pvar;
+
+Coefficient (all,i,IND)(all,d,DST) VCST(i,d) # Total cost of industry i #;
+Formula     (all,i,IND)(all,d,DST) VCST(i,d) = PRIM(i,d)  + PUR_CS(i,d);
+Variable (all,i,IND)(all,d,DST)    pcst(i,d) # Ex-tax cost of production #;
+Equation
+E_pcst (all,i,IND)(all,d,DST)  ID01(VCST(i,d))*[pcst(i,d)-atot(i,d)] =
+ PRIM(i,d)*[aprim(i,d)+pprim(i,d)] +  PUR_CS(i,d)*pint(i,d);
+
+Coefficient
+ (all,i,IND)(all,d,DST)    VTOT(i,d) # Total industry cost plus tax #;
+ (all,i,IND)(all,d,DST) PTXRATE(i,d) # Rate of production tax #;
+Zerodivide default 1.0;
+Formula
+ (all,i,IND)(all,d,DST)    VTOT(i,d)  = VCST(i,d) + PRODTAX(i,d);
+ (all,i,IND)(all,d,DST) PTXRATE(i,d)  = PRODTAX(i,d)/VCST(i,d);
+Zerodivide off;
+Write PTXRATE to file SUMMARY header "PTXR";
+Variable
+ (change)(all,i,IND)(all,d,DST)
+   delPTXRATE(i,d) # Change in rate of production tax #;
+Equation
+E_delPTX  (all,i,IND) (all,d,DST) delPTX(i,d) =
+  0.01*PRODTAX(i,d)*[xtot(i,d)+pcst(i,d)]    +    VCST(i,d)*delPTXRATE(i,d);
+E_ptot     (all,i,IND)(all,d,DST)
+ ID01(VTOT(i,d))*[ptot(i,d) + xtot(i,d)] =
+  VCST(i,d)*[pcst(i,d) + xtot(i,d)] + 100*delPTX(i,d);
+
+Set COSTCAT # Cost Categories #
+ (IntDom, IntImp, ComTax, LAB, CAP, LND, PRODTAX);
+Coefficient
+ (all,i,IND)(all,co,COSTCAT)(all,d,DST) COSTMAT(i,co,d) # Cost Matrix #;
+Formula
+ (all,i,IND)(all,d,DST) COSTMAT(i,"IntDom",d)  = sum{c,COM, USE(c,"dom",i,d)};
+ (all,i,IND)(all,d,DST) COSTMAT(i,"IntImp",d)  = sum{c,COM, USE(c,"imp",i,d)};
+ (all,i,IND)(all,d,DST)
+                COSTMAT(i,"ComTax",d)  = sum{c,COM, sum{s,SRC, TAX(c,s,i,d)}};
+ (all,i,IND)(all,d,DST) COSTMAT(i,"Lab",d)     = LAB_O(i,d);
+ (all,i,IND)(all,d,DST) COSTMAT(i,"Cap",d)     = CAP(i,d);
+ (all,i,IND)(all,d,DST) COSTMAT(i,"Lnd",d)     = LND(i,d);
+ (all,i,IND)(all,d,DST) COSTMAT(i,"ProdTax",d) = PRODTAX(i,d);
+Write COSTMAT to file SUMMARY header "CSTM";
+Write VTOT    to file SUMMARY header "VTOT";
+
+! Excerpt 13 of TABLO input file: !
+! Household demands for imp/dom composite commodities !
+! follows LES/Stone-Geary/Klein-Rubin scheme !
+
+! Multiple households version
+Set HOU # Households # read elements from file REGSETS header "HOU";
+Coefficient (all,c,COM)(all,h,HOU)(all,d,DST) HOUPUR(c,h,d) #Household demands#;
+Read HOUPUR from file INFILE header "3PUR";  !
+! end multiple households section !
+
+! Single households version !
+Set HOU # Households # (AllHou);
+Coefficient(all,c,COM)(all,h,HOU)(all,d,DST) HOUPUR(c,h,d) # Household demands#;
+Formula (all,c,COM)(all,h,HOU)(all,d,DST) HOUPUR(c,h,d) = PUR_S(c,"Hou",d);
+! end single households section !
+
+Coefficient (all,h,HOU)(all,d,DST) HOUPUR_C(h,d) # Household demand totals #;
+Formula (all,h,HOU)(all,d,DST) HOUPUR_C(h,d) = sum{c,COM, HOUPUR(c,h,d)};
+
+Variable
+ (all,c,COM)(all,h,HOU)(all,d,DST) xhouh_s(c,h,d) # Household demands #;
+ (all,h,HOU)(all,d,DST)
+   wlux(h,d) # Total nominal supernumerary household expenditure #;
+ (all,h,HOU)(all,d,DST) xhouhtot(h,d) # Total real household consumption #;
+ (all,h,HOU)(all,d,DST) whouhtot(h,d) # Total nominal household consumption #;
+ (all,h,HOU)(all,d,DST)           phouhtot(h,d) # CPI #;
+ (all,h,HOU)(all,d,DST)              nhouh(h,d) # Number of households #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   xlux(c,h,d) # Household - supernumerary demands #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   xsub(c,h,d) # Household - subsistence demands #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   alux(c,h,d) # Taste change, supernumerary demands #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   asub(c,h,d) # Taste change, subsistence demands #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   ahou_s(c,h,d) # Taste change,household imp/dom compsite#;
+Coefficient
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   SLUX(c,h,d) # Marginal household budget shares #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   EPSH(c,h,d)  # Household expenditure elasticities #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   BUDGSHR(c,h,d) # Household average budget shares #;
+ (all,h,HOU)(all,d,DST)            EPSAVE(h,d) # Average EPS: should be 1 #;
+ (all,h,HOU)(all,d,DST)
+   FRISCHH(h,d) # Frisch LES 'parameter'= - (total/luxury) #;
+ (all,c,COM)(all,h,HOU)(all,d,DST)
+   BLUX(c,h,d) # Ratio, (supernumerary expenditure/total expenditure) #;
+Read   FRISCHH from file INFILE header "P021";
+          EPSH from file INFILE header "XPEL";
+Formula
+ (all,c,COM)(all,h,HOU)(all,d,DST) BUDGSHR(c,h,d) = HOUPUR(c,h,d)/HOUPUR_C(h,d);
+ (all,h,HOU)(all,d,DST) EPSAVE(h,d) = sum{c,COM, EPSH(c,h,d)*BUDGSHR(c,h,d)};
+! scale EPS so they average to 1: else they tend to drift off in recursive sims!
+(initial) (all,c,COM)(all,h,HOU)(all,d,DST) EPSH(c,h,d)=EPSH(c,h,d)/EPSAVE(h,d);
+ (all,c,COM)(all,h,HOU)(all,d,DST)  BLUX(c,h,d) = ABS[EPSH(c,h,d)/FRISCHH(h,d)];
+ (all,c,COM)(all,h,HOU)(all,d,DST)  SLUX(c,h,d) = EPSH(c,h,d)*BUDGSHR(c,h,d);
+Write  SLUX    to file SUMMARY header "LSHR";
+       BUDGSHR to file SUMMARY header "BSHR";
+       EPSAVE  to file SUMMARY header "AVEP";
+Update
+(change)(all,h,HOU)(all,d,DST)
+FRISCHH(h,d) = FRISCHH(h,d)*[whouhtot(h,d)-wlux(h,d)]/100.0;
+(change)(all,c,COM)(all,h,HOU)(all,d,DST)
+ EPSH(c,h,d) = EPSH(c,h,d)
+  *[xlux(c,h,d)- xhouh_s(c,h,d)+whouhtot(h,d)-wlux(h,d)]/100.0;
+! multiple households only:
+(all,c,COM)(all,h,HOU)(all,d,DST) HOUPUR(c,h,d) = phou(c,d)*xhouh_s(c,h,d);
+!
+Equation
+  E_xsub # Subsistence demand for composite commodities #
+  (all,c,COM)(all,h,HOU)(all,d,DST) xsub(c,h,d) = nhouh(h,d) + asub(c,h,d);
+
+ E_xlux # Luxury demand for composite commodities #
+  (all,c,COM)(all,h,HOU)(all,d,DST)
+   xlux(c,h,d) + phou(c,d) = wlux(h,d) + alux(c,h,d);
+
+ E_xhouh_s  # Total household demand for composite commodities #
+  (all,c,COM)(all,h,HOU)(all,d,DST)
+   xhouh_s(c,h,d) = BLUX(c,h,d)*xlux(c,h,d) + [1-BLUX(c,h,d)]*xsub(c,h,d);
+
+ E_alux # Default setting for luxury taste shifter #
+  (all,c,COM)(all,h,HOU)(all,d,DST)
+   alux(c,h,d) = asub(c,h,d) - sum{k,COM, SLUX(k,h,d)*asub(k,h,d)};
+
+ E_asub # Default setting for subsistence taste shifter #
+  (all,c,COM)(all,h,HOU)(all,d,DST)
+   asub(c,h,d) = ahou_s(c,h,d) - sum{k,COM, BUDGSHR(k,h,d)*ahou_s(k,h,d)};
+
+ E_wlux (all,h,HOU)(all,d,DST)
+   xhouhtot(h,d)= sum{c,COM,BUDGSHR(c,h,d)*xhouh_s(c,h,d)};
+
+ E_phouhtot (all,h,HOU)(all,d,DST)
+   phouhtot(h,d)= sum{c,COM,BUDGSHR(c,h,d)*phou(c,d)};
+
+ E_whouhtot (all,h,HOU)(all,d,DST) whouhtot(h,d)= phouhtot(h,d) + xhouhtot(h,d);
+
+! Decomposition of % changes in regional CPI !
+Variable (change) (all,c,COM)(all,h,HOU)(all,d,DST) contCPI(c,h,d)
+ # Contributions by commodity to % regional CPI #;
+Coefficient (all,h,HOU)(all,d,DST) RATIOCPI(h,d)# (Current/initial) CPI #;
+Formula  (initial)(all,h,HOU)(all,d,DST) RATIOCPI(h,d) = 1;
+Read (ifheaderexists) RATIOCPI from file INFILE header "RCPI";
+Update            (all,h,HOU)(all,d,DST) RATIOCPI(h,d) = phouhtot(h,d);
+Equation E_contCPI (all,c,COM)(all,h,HOU)(all,d,DST)
+  contCPI(c,h,d)= RATIOCPI(h,d)*BUDGSHR(c,h,d)*phou(c,d);
+
+Coefficient DEFHOUSHR # Default household share #;
+Formula     DEFHOUSHR = 1/sum{h,HOU,1};
+Zerodivide default DEFHOUSHR;
+Coefficient (all,c,COM)(all,d,DST) HOUPUR_H(c,d) # Household demand totals #;
+Formula (all,c,COM)(all,d,DST) HOUPUR_H(c,d) = sum{h,HOU, HOUPUR(c,h,d)};
+Coefficient (all,c,COM)(all,h,HOU)(all,d,DST) HOUSHR(c,h,d) # Household shares#;
+Formula (all,c,COM)(all,h,HOU)(all,d,DST)
+           HOUSHR(c,h,d) = HOUPUR(c,h,d)/HOUPUR_H(c,d);
+Zerodivide off;
+
+! we require that HOUPUR_H(c,d) = PUR_S(c,"Hou",d) !
+Coefficient (all,c,COM)(all,d,DST) CHKHOUPUR(c,d) # Household demand check #;
+Formula   (all,c,COM)(all,d,DST)
+   CHKHOUPUR(c,d) = HOUPUR_H(c,d) - PUR_S(c,"Hou",d);
+Write CHKHOUPUR to file SUMMARY header "CHOU";
+Formula   (all,c,COM)(all,d,DST)
+   CHKHOUPUR(c,d) = 200*CHKHOUPUR(c,d)/ID01[HOUPUR_H(c,d) + PUR_S(c,"Hou",d)];
+Write CHKHOUPUR to file SUMMARY header "CHO2" longname "HOUPUR error as %";
+Assertion # Check HOUPUR_H = PUR_S("Hou") #
+  (all,c,COM)(all,d,DST) ABS[CHKHOUPUR(c,d)]<0.1;
+
+Variable
+ (all,d,DST) xhoutot(d) # All-household real consumption #;
+ (all,d,DST) phoutot(d) # All-household CPI #;
+Equation
+E_xhou_s   # All-household demand for composite commodities #
+  (all,c,COM)(all,d,DST) xhou_s(c,d)= sum{h,HOU, HOUSHR(c,h,d)*xhouh_s(c,h,d)};
+E_xhoutot  # All-household demand #
+  (all,d,DST) sum{h,HOU, HOUPUR_C(h,d)*[xhoutot(d)-xhouhtot(h,d)]} = 0;
+E_phoutot  # All-household CPI #
+  (all,d,DST) sum{h,HOU, HOUPUR_C(h,d)*[phoutot(d)-phouhtot(h,d)]} = 0;
+E_nhouh    # Number of households #
+  (all,h,HOU)(all,d,DST) nhouh(h,d) = nhou(d);
+
+! National addup of HOU-length variables !
+Variable
+ (all,h,HOU) natxhouhtot(h) # National real consumption by household #;
+ (all,h,HOU) natphouhtot(h) # National CPI by household #;
+Equation
+E_natxhouhtot # National real consumption by household #
+ (all,h,HOU) sum{d,DST, HOUPUR_C(h,d)*[natxhouhtot(h)-xhouhtot(h,d)]} = 0;
+E_natphouhtot # National CPI by household #
+ (all,h,HOU) sum{d,DST, HOUPUR_C(h,d)*[natphouhtot(h)-phouhtot(h,d)]} = 0;
+
+! Excerpt 14 of TABLO input file: !
+! Investment demands and indices: conditional on industry-specific investment !
+Coefficient
+(all,c,COM)(all,d,DST) INVEST_I(c,d) # Investment by commodity and region #;
+(all,i,IND)(all,d,DST) INVEST_C(i,d) # Investment by industry and region #;
+Formula
+(all,c,COM)(all,d,DST) INVEST_I(c,d) = sum{i,IND,INVEST(c,i,d)};
+(all,i,IND)(all,d,DST) INVEST_C(i,d) = sum{c,COM,INVEST(c,i,d)};
+Variable
+(all,i,IND)(all,d,DST) xinvitot(i,d) # Investment by industry #;
+(all,i,IND)(all,d,DST) pinvitot(i,d) # Investment price index by industry #;
+Equation
+ E_xinvi # Leontief technology for new capital creation #
+  (all,c,COM)(all,i,IND)(all,d,DST) xinvi(c,i,d) = xinvitot(i,d);
+ E_pinvest # Alias # (all,c,COM)(all,d,DST) pinvest(c,d) = ppur_s(c,"Inv",d);
+ E_pinvitot (all,i,IND)(all,d,DST) ID01(INVEST_C(i,d))*pinvitot(i,d)
+                = sum{c,COM,INVEST(c,i,d)*pinvest(c,d)};
+ E_xinv_s # Add up industry demands for investment goods #
+  (all,c,COM)(all,d,DST)
+ID01(INVEST_I(c,d))*xinv_s(c,d)= sum{i,IND,INVEST(c,i,d)*xinvi(c,i,d)};
+
+! Excerpt 15 of TABLO input file: !
+! Industry-specific investment demands !
+Variable
+ (all,i,IND)(all,d,DST) gret(i,d)
+   # Gross rate of return = Rental/[Price of new capital] #;
+ (all,i,IND)(all,d,DST) ggro(i,d)
+   # Gross growth rate of capital = Investment/capital #;
+ (all,i,IND)(all,d,DST) finv1(i,d)  # Investment shift variable for DPSV rule #;
+ (all,i,IND)(all,d,DST) finv2(i,d)  # Exogenous investment shifter #;
+ invslack # Investment slack variable for exogenizing national investment #;
+Equation
+ E_gret     (all,i,IND)(all,d,DST) gret(i,d)= pcap(i,d) - pinvitot(i,d);
+ E_xinvitot (all,i,IND)(all,d,DST) ggro(i,d)= xinvitot(i,d) - xcap(i,d);
+
+Equation E_ggro # DPSV investment rule #
+ (all,i,IND)(all,d,DST) ggro(i,d) = finv1(i,d) + 0.33*[2.0*gret(i,d) -invslack];
+
+Equation E_finv2 # Exogenous investment rule #
+ (all,i,IND)(all,d,DST) xinvitot(i,d) = finv2(i,d) + xgdpexp(d);
+
+! Mechanism to allow fixed total capital to flow between sectors !
+Variable
+ (all,i,IND)(all,d,DST) fgret(i,d)
+              # Shifter to lock together industry rates of return #;
+             capslack # Slack variable to allow fixing aggregate capital #;
+Equation E_fgret # Equation to force rates of return to move together #
+ (all,i,IND)(all,d,DST) gret(i,d) = fgret(i,d) + capslack;
+! normally, capslack is exogenous and fgret endogenous, so above just
+  determines fgret. To allow capital to be mobile between sectors, yet
+  fixed in aggregate, swap [newly exogenous at left]:
+    x1cap_i   with   capslack
+    fgret     with   xcap         !
+
+! Excerpt 16 of TABLO input file: !
+! Government, export, and inventory demands !
+Variable
+(all,c,COM)(all,d,DST)            xgov_s(c,d) # Government demands, dom+imp #;
+(all,c,COM)(all,s,SRC)(all,d,DST) fgov(c,s,d) # Government demand shifter #;
+(all,c,COM)(all,d,DST)            fgov_s(c,d) # Government demand shifter #;
+(all,d,DST)                        fgovtot(d) # Government demand shifter #;
+(all,d,DST)                       fgovtot2(d) # Government demand shifter #;
+(all,d,DST)                       fgovtot3(d) # Government demand shifter #;
+                                   fgovgen    # Economy-wide govt demand shift#;
+Equation
+E_xgov (all,c,COM)(all,s,SRC)(all,d,DST)
+ xgov(c,s,d) =  fgovtot(d) + fgov(c,s,d) + fgov_s(c,d) + fgovgen;
+
+E_xgov_s (all,c,COM)(all,d,DST)
+ xgov_s(c,d) = sum{s,SRC, SRCSHR(c,s,"Gov",d)*xgov(c,s,d)};
+
+E_fgovtot2 (all,d,REG)
+ fgovtot(d) = fgovtot2(d) +  xhoutot(d);
+! with fgovtot2 exogenous, fgovtot endogenous, reg. real gov spending demand
+  follows regional real household demand !
+
+E_fgovtot3 (all,d,REG)
+ fgovtot(d) = fgovtot3(d) +  xgdpexp(d);
+! with fgovtot2 exogenous, fgovtot endogenous, reg. real gov spending demand
+  follows regional real gdp !
+
+! Exports !
+Variable
+(all,c,COM)(all,d,DST) xexpd(c,d ) # Exports of domestic good #;
+(all,c,COM)(all,d,DST) pfexp(c,d ) # Foreign currency price of exports #;
+(all,c,COM)(all,d,DST) fqexp(c,d ) # Export quantity shift variable #;
+(all,c,COM)(all,d,DST) fpexp(c,d)  # Export price shift variable #;
+(all,c,COM)            fqexp_d(c ) # Export quantity shift variable #;
+(all,c,COM)            fpexp_d(c)  # Export price shift variable #;
+                       natfpexp    # Scalar export shifter: price #;
+                       natfqexp    # Scalar export shifter: quantity #;
+Equation
+E_pfexp (all,c,COM)(all,d,DST) pfexp(c,d) = ppur(c,"dom","Exp",d) - phi;
+E_xexpd (all,c,COM)(all,d,DST)
+   xexpd(c,d) = natfqexp + fqexp(c,d) + fqexp_d(c)
+       - EXP_ELAST(c)*[pfexp(c,d) - fpexp(c,d)  - fpexp_d(c) - natfpexp];
+
+! No theory for re-exports -- currently just held fixed (ie, =0) !
+Equation E_xexp (all,c,COM)(all,s,SRC)(all,d,DST)
+ xexp(c,s,d) = ISDOM(s)*xexpd(c,d);
+Substitute xexp using E_xexp;
+
+Variable (all,c,COM)(all,d,DST) xexp_s(c,d) # Export demands, dom+imp #;
+Equation E_xexp_s (all,c,COM)(all,d,DST)
+   xexp_s(c,d) = sum{s,SRC, SRCSHR(c,s,"exp",d)*xexp(c,s,d)};
+
+! Inventories !
+Variable  (all,i,IND)(all,d,DST) fxstocks(i,d) # Inventories per output #;
+Equation E_xstocks (all,i,IND)(all,d,DST) xstocks(i,d) =xtot(i,d)+fxstocks(i,d);
+Omit fxstocks;
+
+! Excerpt 17 of TABLO input file: !
+! Add up user demands to get total regional demand for delivered goods !
+Variable
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xtrad_r(c,s,d) # Total demand for good c,s in d #;
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xuse(c,s,d) # Total demand for regional composite c,s in d #;
+
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xint_i(c,s,d) # Total intermediate demand for regional composite c,s in d #;
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DST)
+   USE_U(c,s,d) # Total delivered value of regional composite c,s in d #;
+Formula     (all,c,COM)(all,s,SRC)(all,d,DST)
+   USE_U(c,s,d) = sum{u,USR, USE(c,s,u,d)};
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DST)
+   USE_I(c,s,d) # All-intermediate delivered value of reg. composite c,s in d #;
+Formula     (all,c,COM)(all,s,SRC)(all,d,DST)
+   USE_I(c,s,d) = sum{i,IND, USE(c,s,i,d)};
+
+Equation E_xint_i # Total intermediate demand for regional composite c,s in d #
+(all,c,COM)(all,s,SRC)(all,d,DST)
+  ID01[USE_I(c,s,d)]*xint_i(c,s,d) = sum{i,IND, USE(c,s,i,d)*xint(c,s,i,d)};
+
+Equation E_xuse # Total demand for regional composite c,s in d #
+(all,c,COM)(all,s,SRC)(all,d,DST)
+  ID01[USE_U(c,s,d)]*xuse(c,s,d) =
+               USE_I(c,s,d)  *xint_i(c,s,d)
+             + USE(c,s,"hou",d)*xhou(c,s,d)
+             + USE(c,s,"inv",d)*xinv(c,s,d)
+             + USE(c,s,"gov",d)*xgov(c,s,d)
+             + USE(c,s,"exp",d)*xexp(c,s,d);
+
+! Excerpt 18 of TABLO input file: !
+! Compute reporting variables xlocuse, xlocuse_s and xlocuse_sd !
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   LOCUSE(c,s,d) # Non-export delivered value of regional composite c,s in d #;
+(all,c,COM)(all,d,DST) LOCUSE_S(c,d)  # Non-export delivered value of good c #;
+(all,c,COM)   LOCUSE_SD(c)   # Non-export national delivered value of good c #;
+(all,c,COM)(all,d,DST)   IMPSHR(c,d)        # Import share in non-export use #;
+zerodivide default 0;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) LOCUSE(c,s,d) = USE_U(c,s,d)-USE(c,s,"exp",d);
+(all,c,COM)(all,d,DST)            LOCUSE_S(c,d) = sum{s,SRC, LOCUSE(c,s,d)};
+(all,c,COM)                       LOCUSE_SD(c)  = sum{d,DST, LOCUSE_S(c,d)};
+(all,c,COM)(all,d,DST)   IMPSHR(c,d)  = LOCUSE(c,"imp",d)/LOCUSE_S(c,d);
+zerodivide off;
+Write
+ LOCUSE to file SUMMARY header "LUSE";
+ IMPSHR to file SUMMARY header "MSHR";
+
+Variable
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   xlocuse(c,s,d) # Total non-export demand for regional composite c,s in d #;
+Equation E_xlocuse (all,c,COM)(all,s,SRC)(all,d,DST)
+   ID01[USE_U(c,s,d)]*xuse(c,s,d) =
+   ID01[LOCUSE(c,s,d)]*xlocuse(c,s,d) + USE(c,s,"exp",d)*xexp(c,s,d);
+Backsolve xlocuse using E_xlocuse;
+
+Variable
+(all,c,COM)(all,d,DST)
+   xlocuse_s(c,d) # Total non-export demand for good c in d #;
+Equation E_xlocuse_s (all,c,COM)(all,d,DST)
+ID01[LOCUSE_S(c,d)]*xlocuse_s(c,d) = sum{s,SRC, LOCUSE(c,s,d)*xlocuse(c,s,d)};
+Backsolve xlocuse_s using E_xlocuse_s;
+
+Variable
+(all,c,COM) xlocuse_sd(c) # National non-export demand for good c #;
+Equation E_xlocuse_sd (all,c,COM)
+ID01[LOCUSE_SD(c)]*xlocuse_sd(c) = sum{d,DST, LOCUSE_S(c,d)*xlocuse_s(c,d)};
+
+! Excerpt 19 of TABLO input file: !
+! Delivering goods to regions !
+Coefficient (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         DELIVRD(c,s,r,d) # Trade + margins #;
+Formula     (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         DELIVRD(c,s,r,d)= TRADE(c,s,r,d) + sum{m,MAR, TRADMAR(c,s,m,r,d)};
+Variable    (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+         pdelivrd(c,s,r,d) # All-user delivered price of good c,s from r to d #;
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) BASSHR(c,s,r,d)
+# Share of basic value in all-user delivered price #;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST) MARSHR(c,s,m,r,d)
+# Share of margin m in all-user delivered price #;
+!Coefficient DEFSHR # default value for BASSHR and MARSHR #;
+Formula     DEFSHR = 1/[1+ sum{m,MAR,1}];!
+Zerodivide default 0; ! alternative: DEFSHR !
+Formula
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ BASSHR(c,s,r,d) = TRADE(c,s,r,d)/DELIVRD(c,s,r,d);
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+ MARSHR(c,s,m,r,d) = TRADMAR(c,s,m,r,d)/DELIVRD(c,s,r,d);
+Zerodivide off;
+
+Variable
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   atradmar(c,s,m,r,d) # Tech change: margin m on good c,s going from r to d #;
+
+![[! for optional road-rail substitution!
+Set ROADRAIL (TransRodo, TransFerro); ! edit these to match your names !
+Subset ROADRAIL is subset of MAR;
+Coefficient (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ VRoadRail(c,s,r,d) # Road + rail cost #;
+Formula     (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ VRoadRail(c,s,r,d) = sum{m,ROADRAIL,TRADMAR(c,s,m,r,d)};
+Coefficient (all,c,COM)(all,s,SRC)(all,m,ROADRAIL)(all,r,ORG)(all,d,DST)
+ RRshr(c,s,m,r,d) # Road/rail share #;
+Zerodivide default 0.5;
+Formula     (all,c,COM)(all,s,SRC)(all,m,ROADRAIL)(all,r,ORG)(all,d,DST)
+ RRshr(c,s,m,r,d) = TRADMAR(c,s,m,r,d)/VRoadRail(c,s,r,d);
+Zerodivide off;
+Coefficient (parameter) (all,c,COM) SIGROADRAIL(c) # Road/rail subst elast #;
+!Formula     (all,c,COM) SIGROADRAIL(c) = 0.2;!
+Read SIGROADRAIL from file REGSUPP header "SGRR";
+Coefficient (all,m,MAR) IsRoadRail(m) # Binary dummy #;
+Formula     (all,m,MAR) IsRoadRail(m) = 0;
+       (all,m,ROADRAIL) IsRoadRail(m) = 1;
+Variable    (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ pRoadRail(c,s,r,d) # Ave efective road/rail price on good c,s going r to d #;
+Equation E_pRoadRail
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+ pRoadRail(c,s,r,d) = sum{m,ROADRAIL,RRshr(c,s,m,r,d)*
+                        [psuppmar_p(m,r,d)+atradmar(c,s,m,r,d)]};
+Substitute pRoadRail using E_pRoadRail; !]]!
+
+Equation E_xtradmar # Leontief demand for margins #
+ (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+  xtradmar(c,s,m,r,d) =  xtrad(c,s,r,d) + atradmar(c,s,m,r,d)
+! only for optional road-rail substitution:
+   - IsRoadRail(m)*SIGROADRAIL(c)*
+          [psuppmar_p(m,r,d)+atradmar(c,s,m,r,d) - pRoadRail(c,s,r,d)] !;
+
+Equation E_pdelivrd # Delivered price of good c,s from r to d #
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) pdelivrd(c,s,r,d) =
+  BASSHR(c,s,r,d)*pbasic(c,s,r)
+   + sum{m,MAR, MARSHR(c,s,m,r,d)*[psuppmar_p(m,r,d)+atradmar(c,s,m,r,d)]};
+
+! Excerpt 20 of TABLO input file: !
+! For each good and destination region, an average user chooses region sourcing!
+! based on delivered (margin-paid, but ex-tax) prices and values !
+
+Variable ! addition March 2012 for iceberg trade costs !
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) atrad(c,s,r,d)
+  # Tech. change, good c,s from r to d #;
+Coefficient (all,c,COM)(all,s,SRC)(all,d,DST)
+  DELIVRD_R(c,s,d) # Demand in region d for delivered goods from all regions #;
+Formula (all,c,COM)(all,s,SRC)(all,d,DST)
+  DELIVRD_R(c,s,d) = sum{r,ORG,DELIVRD(c,s,r,d)};
+Equation E_puse # Delivered price of regional composite good c,s to d #
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+  ID01(DELIVRD_R(c,s,d))*puse(c,s,d) ! CES price index !
+            = sum{r,ORG,DELIVRD(c,s,r,d)*[pdelivrd(c,s,r,d)+atrad(c,s,r,d)]};
+
+Variable
+ (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST) srctwist(c,s,r,d) # Source twist #;
+ (all,c,COM)(all,s,SRC)(all,d,DST) avesrctwist(c,s,d) # Average source twist #;
+Equation E_avesrctwist
+ (all,c,COM)(all,s,SRC)(all,d,DST)
+  ID01(DELIVRD_R(c,s,d))*avesrctwist(c,s,d) = sum{r,ORG,DELIVRD(c,s,r,d)*srctwist(c,s,r,d)};
+
+Equation E_xtrad # CES between goods from different regions #
+ (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+  xtrad(c,s,r,d) - atrad(c,s,r,d) = xuse(c,s,d) + srctwist(c,s,r,d) - avesrctwist(c,s,d)
+            - SIGMADOMDOM(c)*[pdelivrd(c,s,r,d)+atrad(c,s,r,d)-puse(c,s,d)];
+Substitute xtrad using E_xtrad;
+
+! alternative form with "twists":
+Variable (all,i,COM) (all,s,SRC)(all,k,ORG) twistsrc(i,s,k)
+    # Sourcing twist towards origin (k) for good (i,s) #;
+Equation E_xtrad # CES between goods from different regions #
+(all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+xtrad(c,s,r,d)=xuse(c,s,d)-SIGMADOMDOM(c)*[pdelivrd(c,s,r,d)-puse(c,s,d)]
+ +  sum{k,ORG,  [if(k eq r,1) -
+    DELIVRD(c,s,k,d)/{DELIVRD_R(c,s,d)+0.000000000001}]*twistsrc(c,s,k) }!
+
+Variable (all,d,DST) pdelimp(d)
+  # Average delivered price of goods from other regions #;
+Equation E_pdelimp (all,d,DST) sum{c,COM,sum{s,SRC,sum{r,REG:r<>d,
+      DELIVRD(c,s,r,d)*[pdelivrd(c,s,r,d)-pdelimp(d)]}}}=0;
+Backsolve pdelimp using E_pdelimp;
+
+! Excerpt 21 of TABLO input file: !
+! Where margins are produced !
+! We need xSUPPMAR_P(m,r,d) margins .......what reg p shall they come from ? !
+Coefficient
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    TRADMAR_CS(m,r,d) # Total demand for margin m on goods from r to d #;
+ (all,m,MAR)(all,r,ORG)(all,d,DST)    ! above should equal below !
+    SUPPMAR_P(m,r,d)  # Total demand for margin m on goods from r to d #;
+ (all,m,MAR)(all,r,ORG)(all,p,PRD)
+    SUPPMAR_D(m,r,p)  # Total demand for margin m (from p) on goods from r #;
+ (all,m,MAR)(all,p,PRD)
+    SUPPMAR_RD(m,p)   # Total demand for margin m produced in p #;
+ (all,m,MAR)(all,d,DST)(all,p,PRD)
+    SUPPMAR_R(m,d,p) # Margins supplied by p on all goods passing to d #;
+Formula
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    TRADMAR_CS(m,r,d) = sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)}};
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+    SUPPMAR_P(m,r,d)  = sum{p,PRD, SUPPMAR(m,r,d,p)};
+ (all,m,MAR)(all,r,ORG)(all,p,PRD)
+    SUPPMAR_D(m,r,p)  = sum{d,DST, SUPPMAR(m,r,d,p)};
+ (all,m,MAR)(all,p,PRD)
+    SUPPMAR_RD(m,p)   = sum{r,ORG, SUPPMAR_D(m,r,p)};
+ (all,m,MAR)(all,d,DST)(all,p,PRD)
+    SUPPMAR_R(m,d,p)  = sum{r,ORG, SUPPMAR(m,r,d,p)};
+
+Equation E_xsuppmar_p # Composite margin m on goods passing from r to d #
+ (all,m,MAR)(all,r,ORG)(all,d,DST) ! add up demands !
+  ID01(TRADMAR_CS(m,r,d))*xsuppmar_p(m,r,d) =
+   sum{c,COM, sum{s,SRC, TRADMAR(c,s,m,r,d)*xtradmar(c,s,m,r,d)}};
+
+Variable (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) asuppmar(m,r,d,p)
+# Tech change, Margin m supplied by p on goods passing from r to d #;
+
+Equation E_psuppmar_p # Price of composite margin m on goods from r to d #
+ (all,m,MAR)(all,r,ORG)(all,d,DST) ! CES price index !
+   ID01(SUPPMAR_P(m,r,d))*psuppmar_p(m,r,d) =
+      sum{p,PRD, SUPPMAR(m,r,d,p)*[pdom(m,p)+asuppmar(m,r,d,p)]};
+
+Equation E_xsuppmar # Margin m supplied by p on goods passing from r to d #
+ (all,m,MAR)(all,r,ORG)(all,d,DST)(all,p,PRD) ! CES demands !
+  xsuppmar(m,r,d,p) = xsuppmar_p(m,r,d) + asuppmar(m,r,d,p)
+           - SIGMAMAR(m)*[pdom(m,p)+asuppmar(m,r,d,p)-psuppmar_p(m,r,d)];
+
+! add up total demand for margins produced in p !
+Variable
+(all,m,MAR)(all,r,ORG)(all,p,PRD)
+   xsuppmar_d(m,r,p) # Total margins on goods from r, produced in p #;
+Equation E_xsuppmar_d # Total margins on goods from r, produced in p #
+(all,m,MAR)(all,r,ORG)(all,p,PRD)
+ID01(SUPPMAR_D(m,r,p))*xsuppmar_d(m,r,p) =
+ sum{d,DST, SUPPMAR(m,r,d,p)*xsuppmar(m,r,d,p)};
+
+Equation E_xsuppmar_rd # Total demand for margins produced in p #
+(all,m,MAR)(all,p,PRD) ID01(SUPPMAR_RD(m,p))*xsuppmar_rd(m,p) =
+ sum{r,ORG, SUPPMAR_D(m,r,p)*xsuppmar_d(m,r,p)};
+
+! Excerpt 22 of TABLO input file: !
+! MAKE: multi-product industries have CET specification !
+Coefficient
+ (all,i,IND)(all,d,DST) MAKE_C(i,d) # All production by industry i #;
+ (all,c,COM)(all,d,DST) MAKE_I(c,d) # Total production of commodities #;
+Formula
+ (all,i,IND)(all,d,DST) MAKE_C(i,d) = sum{c,COM, MAKE(c,i,d)};
+ (all,c,COM)(all,d,DST) MAKE_I(c,d) = sum{i,IND, MAKE(c,i,d)};
+Coefficient RECIPNCOM;
+Formula     RECIPNCOM = 1/sum{c,COM,1};
+Coefficient RECIPNIND;
+Formula     RECIPNIND = 1/sum{i,IND,1};
+Coefficient
+(all,c,COM)(all,i,IND)(all,d,DST) MAKESHR1(c,i,d) # Com share in Ind output #;
+(all,c,COM)(all,i,IND)(all,d,DST) MAKESHR2(c,i,d) # Ind share in Com supply #;
+Zerodivide default RECIPNCOM;
+Formula
+(all,c,COM)(all,i,IND)(all,d,DST) MAKESHR1(c,i,d) = MAKE(c,i,d)/MAKE_C(i,d);
+Zerodivide default RECIPNIND;
+Formula
+(all,c,COM)(all,i,IND)(all,d,DST) MAKESHR2(c,i,d) = MAKE(c,i,d)/MAKE_I(c,d);
+Zerodivide off;
+Variable
+ (all,c,COM)(all,d,DST)  xcom(c,d) # Total output of commodities #;
+Equation
+ E_xmake  # Supplies of commodities by industries #
+ (all,c,COM)(all,i,IND)(all,d,REG)
+  xmake(c,i,d) = xtot(i,d) + SIGMAOUT(i)*[pmake(c,i,d)- ptot(i,d)];
+
+! Remaining equations could most simply be written:!
+!  E_xtot # Average price received by industries #
+  (all,i,IND)(all,d,REG)  ID01(MAKE_C(i,d))*ptot(i,d)
+   = sum{c,COM, MAKE(c,i,d)*pdom(c,d)};
+  E_xcom # Total output of commodities (sum over ind) #
+  (all,c,COM)(all,d,REG)  ID01(MAKE_I(c,d))*xcom(c,d)
+   = sum{i,IND, MAKE(c,i,d)*xmake(c,i,d)}; !
+!However, the more elaborate specification below gives
+considerable computational savings where most sectors are single-product.
+It is designed for use with the "IZ1 = no" (keep zeroes: re-use pivots)
+CMF option.
+!
+
+Coefficient
+ (all,c,COM)(all,i,IND) MAKE_D(c,i) # National MAKE matrix #;
+ (integer,parameter)(all,c,COM) NINDPROD(c)# No of industries that make good c#;
+ (integer,parameter)(all,i,IND) NCOMPROD(i)# No of commodities made by ind i #;
+Formula
+(all,c,COM)(all,i,IND) MAKE_D(c,i) = sum{d,DST, MAKE(c,i,d)};
+(initial) (all,c,COM)  NINDPROD(c) = sum{i,IND:MAKE_D(c,i)<>0,1};
+(initial) (all,i,IND)  NCOMPROD(i) = sum{c,COM:MAKE_D(c,i)<>0,1};
+Set
+ MIND # Multi-product industries #   = (all,i,IND:NCOMPROD(i)>1);
+ SIND # Single-product industries #  =  IND - MIND;
+ MINDCOM # Commodities produced by any industry in MIND #
+     = (all,c,COM:sum{i,MIND,ABS[MAKE_D(c,i)]}>0);
+Mapping SIND2COM from SIND to COM;
+Formula (all,i,SIND) SIND2COM(i) = sum{c,COM:ABS[MAKE_D(c,i)]>0, $pos(c,COM)};
+
+Equation
+ E_xtotA # Average price received by multi-product industries #
+  (all,i, MIND)(all,d,REG)
+    ptot(i,d) = sum{c,MINDCOM, MAKESHR1(c,i,d)*pmake(c,i,d)};
+ E_xtotB # Price received by single-product industries #
+  (all,i,SIND)(all,d,REG) ptot(i,d) = pdom(SIND2COM(i),d);
+
+Set
+ MCOM # Commodities made by several industries #   = (all,c,COM:NINDPROD(c)>1);
+ SCOM # Commodities made by only one industry #  =  COM - MCOM;
+ MCOMIND # Industries that produce a commodity in MCOM #
+     = (all,i,IND:sum{c,MCOM,ABS[MAKE_D(c,i)]}>0);
+Mapping SCOM2IND from SCOM to IND;
+Formula (all,c,SCOM) SCOM2IND(c) = sum{i,IND:ABS[MAKE_D(c,i)]>0, $pos(i,IND)};
+
+Equation
+ E_xcomA # Total output of commodities made by several industries #
+  (all,c,MCOM)(all,d,REG)
+   xcom(c,d) = sum{i,MCOMIND, MAKESHR2(c,i,d)*xmake(c,i,d)};
+ E_xcomB # Output of commodities made by one industry #
+  (all,c,SCOM)(all,d,REG)
+   xcom(c,d) = xmake(c,SCOM2IND(c),d);
+
+! Next equation says that
+ users of good c do not regard c made different industries as perfect
+ substitutes. Rather they CES (sigma=1/0.05) between the different industry
+ products. This would be needed, for example, if 2 industries produced only
+ electricity, with all inputs available elastically. The division of output
+ between the two industries would not be well defined. Replace 0.05 by 0 to
+ restore perfect substitute idea. !
+Equation E_pmake  # Demands for commodities from industries #
+ (all,c,COM)(all,i,IND)(all,d,REG)
+!   xmake(c,i,d) = xcom(c,d) - 20*[pout(c,i,d) - pdom(c,d)]; !
+    pmake(c,i,d) = pdom(c,d) - 0.05*[xmake(c,i,d) - xcom(c,d)];
+
+Write !debug output !
+ (Set) MIND to file SUMMARY header "MIND";
+ (Set) SIND to file SUMMARY header "SIND";
+ (Set) MCOM to file SUMMARY header "MCOM";
+ (Set) SCOM to file SUMMARY header "SCOM";
+ (Set) MCOMIND to file SUMMARY header "MCI";
+ (Set) MINDCOM to file SUMMARY header "MIC";
+ (by_elements) SCOM2IND to file SUMMARY header "SC2I";
+ (by_elements) SIND2COM to file SUMMARY header "SI2C";
+
+! Excerpt 23 of TABLO input file: !
+! Total demand for commodity c produced in r = supply commodity c produced in r!
+Coefficient
+(all,c,COM)(all,s,SRC)(all,r,REG) TRDIAG(c,s,r) # Trade matrix diagonal #;
+(all,c,COM)(all,s,SRC)(all,r,ORG) TRADE_D(c,s,r) # Total direct demands #;
+(all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d) # Total direct demands #;
+(all,c,COM)(all,s,SRC)          TRADE_RD(c,s) # Total national direct demands #;
+Formula
+(all,c,COM)(all,s,SRC)(all,r,REG) TRDIAG(c,s,r)  = TRADE(c,s,r,r);
+(all,c,COM)(all,s,SRC)(all,r,ORG) TRADE_D(c,s,r) = sum{d,DST, TRADE(c,s,r,d)};
+(all,c,COM)(all,s,SRC)(all,d,DST) TRADE_R(c,s,d) = sum{r,ORG, TRADE(c,s,r,d)};
+(all,c,COM)(all,s,SRC)            TRADE_RD(c,s)  = sum{r,ORG, TRADE_D(c,s,r)};
+Variable
+(all,c,COM)(all,s,SRC)(all,r,ORG) xtrad_d(c,s,r)
+  # Total direct demands for goods produced(dom) or landed(imp) in r #;
+Equation E_xtrad_d
+(all,c,COM)(all,s,SRC)(all,r,ORG) ID01(TRADE_D(c,s,r))*xtrad_d(c,s,r) =
+                              sum{d,DST, TRADE(c,s,r,d)*xtrad(c,s,r,d)};
+
+Equation E_xtrad_r
+(all,c,COM)(all,s,SRC)(all,d,DST) ID01(TRADE_R(c,s,d))*xtrad_r(c,s,d) =
+                              sum{r,ORG, TRADE(c,s,r,d)*xtrad(c,s,r,d)};
+
+Equation E_pdomA # Supply = demand for non-margins #
+ (all,c,NONMAR)(all,r,REG)
+   xcom(c,r) = xtrad_d(c,"dom",r);
+
+Equation E_pdomB # Demand = supply for margins #
+ (all,m,MAR)(all,p,REG)
+   MAKE_I(m,p)*xcom(m,p) = TRADE_D(m,"dom",p)*xtrad_d(m,"dom",p)
+                          + SUPPMAR_RD(m,p)*xsuppmar_rd(m,p);
+
+! Excerpt 24 of TABLO input file: !
+! Aggregate final demand price and quantity indices !
+Variable
+(all,u,FINDEM)(all,d,DST) pfin(u,d) # Final user price indices #;
+(all,u,FINDEM)(all,d,DST) xfin(u,d) # Final user quantity indices #;
+(all,u,FINDEM)(all,d,DST) wfin(u,d) # Final user expenditures #;
+Equation
+E_pfin (all,u,FINDEM)(all,d,DST)
+   ID01(PUR_CS(u,d))*pfin(u,d)=sum{c,COM,PUR_S(c,u,d)*ppur_s(c,u,d)};
+
+E_xfina (all,d,DST) xfin("hou",d) = xhoutot(d);
+
+E_xfinb (all,d,DST) ID01(PUR_CS("inv",d))*xfin("inv",d)=
+           sum{c,COM, PUR_S(c,"inv",d)*xinv_s(c,d)};
+
+E_xfinc (all,d,DST) ID01(PUR_CS("gov",d))*xfin("gov",d)=
+           sum{c,COM, PUR_S(c,"gov",d)*xgov_s(c,d)};
+
+E_xfind (all,d,DST) ID01(PUR_CS("exp",d))*xfin("exp",d)=
+           sum{c,COM,sum{s,SRC, PUR(c,s,"exp",d)*xexp(c,s,d)}};
+
+E_wfin (all,u,FINDEM)(all,d,DST)  wfin(u,d) = xfin(u,d)+ pfin(u,d);
+
+Variable ! National final demand agregates !
+(all,u,FINDEM) natpfin(u) # Final user price indices #;
+(all,u,FINDEM) natxfin(u) # Final user quantity indices #;
+(all,u,FINDEM) natwfin(u) # Final user expenditures #;
+Equation
+  E_natpfin (all,u,FINDEM) sum{d,DST,PUR_CS(u,d)*[natpfin(u)-pfin(u,d)]}=0;
+  E_natxfin (all,u,FINDEM) sum{d,DST,PUR_CS(u,d)*[natxfin(u)-xfin(u,d)]}=0;
+  E_natwfin (all,u,FINDEM) natwfin(u) = natpfin(u)+natxfin(u);
+
+! Excerpt 25 of TABLO input file: !
+! Decomposition: Sectoral contributions to regional GDP at factor cost !
+Coefficient (all,d,DST) PRIM_I(d) # Regional GDP at factor cost #;
+ (all,d,DST) RATIOPRIM_I(d) # Ratio (current/initial) real GDP at factor cost #;
+Formula     (all,d,DST) PRIM_I(d) = sum{i,IND, PRIM(i,d)};
+   (initial)(all,d,DST) RATIOPRIM_I(d)= 1;
+Read (ifheaderexists) RATIOPRIM_I from file INFILE header "RPRM";
+Coefficient (all,i,IND)(all,d,DST) PRIMSHR(i,d) # PRIM(i,d)/PRIM_I(d) #;
+Formula     (all,i,IND)(all,d,DST) PRIMSHR(i,d) = PRIM(i,d)/PRIM_I(d);
+! ORANI-G document, Excerpt 34 explains these decompositions !
+Variable
+ (change)(all,i,IND)(all,d,DST)
+      contxprim_i(i,d) # Sector contributions to regional GDP at factor cost #;
+(all,d,DST) xprim_i(d)   # Regional GDP at factor cost (% change) #;
+Update (all,d,DST) RATIOPRIM_I(d)= xprim_i(d);
+Equation
+ E_contxprim_i (all,i,IND)(all,d,DST)
+   contxprim_i(i,d) = RATIOPRIM_I(d)*PRIMSHR(i,d)*xtot(i,d);
+ E_xprim_i (all,d,DST) xprim_i(d) = sum{i,IND, PRIMSHR(i,d)*xtot(i,d)};
+!above could also be: RATIOPRIM_I(d)*xPRIM_I(d)=sum{i,IND,contxPRIM_I(i,d)}!
+
+! Excerpt 26 of TABLO input file: !
+! Commodity tax revenues !
+Equation
+ E_delTAXint (all,c,COM)(all,s,SRC)(all,i,IND)(all,d,DST)
+  delTAXint(c,s,i,d) = 0.01*TAX(c,s,i,d)*[xint(c,s,i,d)+puse(c,s,d)]
+                 + 0.01*PUR(c,s,i,d)*tuser(c,s,i,d);
+ E_delTAXhou (all,c,COM)(all,s,SRC)(all,d,DST)
+  delTAXhou(c,s,d)   = 0.01*TAX(c,s,"hou",d)*[xhou(c,s,d)+puse(c,s,d)]
+                 + 0.01*PUR(c,s,"hou",d)*tuser(c,s,"hou",d);
+ E_delTAXinv (all,c,COM)(all,s,SRC)(all,d,DST)
+  delTAXinv(c,s,d)   = 0.01*TAX(c,s,"inv",d)*[xinv(c,s,d)+puse(c,s,d)]
+                 + 0.01*PUR(c,s,"inv",d)*tuser(c,s,"inv",d);
+ E_delTAXgov (all,c,COM)(all,s,SRC)(all,d,DST)
+  delTAXgov(c,s,d)   = 0.01*TAX(c,s,"gov",d)*[xgov(c,s,d)+puse(c,s,d)]
+                 + 0.01*PUR(c,s,"gov",d)*tuser(c,s,"gov",d);
+ E_delTAXexp (all,c,COM)(all,s,SRC)(all,d,DST)
+  delTAXexp(c,s,d)   = 0.01*TAX(c,s,"exp",d)*[xexp(c,s,d)+puse(c,s,d)]
+                 + 0.01*PUR(c,s,"exp",d)*tuser(c,s,"exp",d);
+
+! Excerpt 27 of TABLO input file: !
+! Primary Factor Aggregates !
+Coefficient
+ (all,o,OCC)(all,d,DST) LAB_I(o,d) # Total wages by skill #;
+ (all,d,DST) LAB_IO(d) # Total wages #;
+ (all,d,DST) LND_I(d)  # Total rentals to land #;
+ (all,d,DST) CAP_I(d)  # Total rentals to capital #;
+ (all,o,OCC) LAB_ID(o) # Total wages by occupation #;
+Formula
+ (all,o,OCC)(all,d,DST) LAB_I(o,d) = sum{i,IND, LAB(i,o,d)};
+ (all,d,DST) LAB_IO(d) = sum{o,OCC, LAB_I(o,d)};
+ (all,d,DST) LND_I(d)  = sum{i,IND, LND(i,d)};
+ (all,d,DST) CAP_I(d)  = sum{i,IND, CAP(i,d)};
+ (all,o,OCC) LAB_ID(o) = sum{d,DST, LAB_I(o,d)};
+
+Variable
+ (all,d,DST) xlnd_i(d)  # Aggregate land, rental-weighted #;
+ (all,d,DST) xcap_i(d)  # Aggregate capital, rental-weighted #;
+ (all,d,DST) wcap_i(d)  # Total rentals to capital #;
+ (all,d,DST) wlnd_i(d)  # Total rentals to land #;
+ (all,d,DST) wprim_i(d) # Total factor payments #;
+Equation
+E_wlnd_i (all,d,DST)
+  LND_I(d)*wlnd_i(d) = sum{i,IND,LND(i,d)*[plnd(i,d)+xlnd(i,d)]};
+E_wcap_i (all,d,DST)
+  CAP_I(d)*wcap_i(d) = sum{i,IND,CAP(i,d)*[pcap(i,d)+xcap(i,d)]};
+E_wprim_i (all,d,DST)
+  PRIM_I(d)*wprim_i(d) = sum{i,IND,PRIM(i,d)*wprim(i,d)};
+E_xlnd_i (all,d,DST)
+  LND_I(d)*xlnd_i(d) = sum{i,IND,LND(i,d)*xlnd(i,d)};
+E_xcap_i (all,d,DST)
+  CAP_I(d)*xcap_i(d) = sum{i,IND,CAP(i,d)*xcap(i,d)};
+
+! Definition of real wages !
+Variable
+(all,i,IND)(all,o,OCC)(all,d,DST) realwage(i,o,d) # Wages deflated by CPI #;
+Equation
+E_plab (all,i,IND)(all,o,OCC)(all,d,DST)
+  realwage(i,o,d) = plab(i,o,d) - pfin("Hou",d);
+
+! Sum-over-industry labour aggregates !
+Coefficient
+ (all,i,IND)(all,o,OCC)(all,d,DST) SLAB_I(i,o,d) # Industry shares of wages #;
+Formula
+ (all,i,IND)(all,o,OCC)(all,d,DST) SLAB_I(i,o,d) = LAB(i,o,d)/LAB_I(o,d);
+Variable
+ (all,o,OCC)(all,d,DST) plab_i(o,d)     # Average wage by occ and reg #;
+ (all,o,OCC)(all,d,DST) realwage_i(o,d) # Average real wages #;
+ (all,o,OCC)(all,d,DST) xlab_i(o,d)     # Aggregate labour, wage-weighted #;
+ (all,o,OCC)(all,d,DST) wlab_i(o,d)     # Total wage bill #;
+ (all,o,OCC)(all,d,DST) rlab_i(o,d)     # Total real wage bill #;
+Equation
+E_plab_i (all,o,OCC)(all,d,DST)
+  plab_i(o,d) = sum{i,IND, SLAB_I(i,o,d)*plab(i,o,d)};
+E_realwage_i (all,o,OCC)(all,d,DST)
+  realwage_i(o,d) = sum{i,IND, SLAB_I(i,o,d)*realwage(i,o,d)};
+E_xlab_i (all,o,OCC)(all,d,DST)
+  xlab_i(o,d) = sum{i,IND, SLAB_I(i,o,d)*xlab(i,o,d)};
+E_wlab_i  (all,o,OCC)(all,d,DST)
+  wlab_i(o,d) = xlab_i(o,d) + plab_i(o,d);
+E_rlab_i  (all,o,OCC)(all,d,DST)
+  rlab_i(o,d) = xlab_i(o,d) + realwage_i(o,d);
+
+! Sum-over-industry-and-region labour aggregates !
+Coefficient
+ (all,o,OCC)(all,d,DST) SLAB_ID(o,d) # Region shares of wages #;
+Formula
+ (all,o,OCC)(all,d,DST) SLAB_ID(o,d) = LAB_I(o,d)/LAB_ID(o);
+Variable
+ (all,o,OCC) plab_id(o)     # National average wage by occ and reg #;
+ (all,o,OCC) realwage_id(o) # National average real wages #;
+ (all,o,OCC) xlab_id(o)     # National aggregate labour, wage-weighted #;
+ (all,o,OCC) wlab_id(o)     # National wage bill, by occ #;
+ (all,o,OCC) rlab_id(o)     # National real wage bill, by occ #;
+Equation
+E_plab_id (all,o,OCC)
+  plab_id(o) = sum{d,DST, SLAB_ID(o,d)*plab_i(o,d)};
+E_realwage_id (all,o,OCC)
+  realwage_id(o) = sum{d,DST, SLAB_ID(o,d)*realwage_i(o,d)};
+E_xlab_id (all,o,OCC)
+  xlab_id(o) = sum{d,DST, SLAB_ID(o,d)*xlab_i(o,d)};
+E_wlab_id  (all,o,OCC)
+  wlab_id(o) = xlab_id(o) + plab_id(o);
+E_rlab_id  (all,o,OCC)
+  rlab_id(o) = xlab_id(o) + realwage_id(o);
+
+! Sum-over-occupation-and-industry labour aggregates !
+Variable
+(all,d,DST) plab_io(d) # Ave wage by region #;
+(all,d,DST) xlab_io(d) # Labour by region, wage-weighted #;
+(all,d,DST) wlab_io(d) # Total wage bill by region #;
+(all,d,DST) rlab_io(d) # Total real wage bill by region #;
+(all,d,DST) realwage_io(d) # Average real wage by region #;
+Equation
+E_plab_io  (all,d,DST)
+  LAB_IO(d)*plab_io(d) = sum{o,OCC,LAB_I(o,d)*plab_i(o,d)};
+E_xlab_io  (all,d,DST)
+  LAB_IO(d)*xlab_io(d) = sum{o,OCC,LAB_I(o,d)*xlab_i(o,d)};
+E_realwage_io  (all,d,DST)
+  LAB_IO(d)*realwage_io(d) = sum{o,OCC,LAB_I(o,d)*realwage_i(o,d)};
+E_wlab_io  (all,d,DST)
+  wlab_io(d) = xlab_io(d) + plab_io(d);
+E_rlab_io  (all,d,DST)
+  rlab_io(d) = xlab_io(d) + realwage_io(d);
+
+! National sum-over-occupation-and-industry labour aggregates !
+Variable
+ realwage_iod # National average real wage #;
+ plab_iod     # National average wage #;
+ xlab_iod     # National total employment, wage-weighted #;
+ wlab_iod     # National total wage bill #;
+ rlab_iod     # National total real wage bill #;
+Equation
+E_realwage_iod
+             sum{d,DST,sum{o,OCC,LAB_I(o,d)*[realwage_i(o,d)-realwage_iod]}}=0;
+E_plab_iod   sum{d,DST,sum{o,OCC,LAB_I(o,d)*[plab_i(o,d)-plab_iod]}}=0;
+E_xlab_iod   sum{d,DST,sum{o,OCC,LAB_I(o,d)*[xlab_i(o,d)-xlab_iod]}}=0;
+E_wlab_iod   wlab_iod = xlab_iod + plab_iod;
+E_rlab_iod   rlab_iod = xlab_iod + realwage_iod;
+
+! Excerpt 28 of TABLO input file: !
+! Nominal Income-side GDP !
+Set GDPINCCAT # GDP income categories # (Land,Labour,Capital,PRODTAX,ComTax);
+Coefficient (all,i,GDPINCCAT)(all,d,DST) GDPINCSUM(d,i)# Income GDP breakdown #;
+Formula     (all,i,GDPINCCAT)(all,d,DST) GDPINCSUM(d,i) = 0;
+(all,d,DST) GDPINCSUM(d,"Land")    = LND_I(d);
+(all,d,DST) GDPINCSUM(d,"Labour")  = LAB_IO(d);
+(all,d,DST) GDPINCSUM(d,"Capital") = CAP_I(d);
+(all,d,DST) GDPINCSUM(d,"ProdTax") = sum{i,IND,PRODTAX(i,d)};
+(all,d,DST) GDPINCSUM(d,"ComTax")  =
+              sum{u,USR, sum{c,COM,sum{s,SRC,TAX(c,s,u,d)}}};
+Write GDPINCSUM to file SUMMARY header "GNSM";
+
+Coefficient (all,d,DST) GDPINC(d)# Income GDP #;
+Formula     (all,d,DST) GDPINC(d) = sum{i,GDPINCCAT, GDPINCSUM(d,i)};
+
+Variable (change) (all,i,GDPINCCAT)(all,d,DST)
+          delGDPINC(d,i)# Ordinary change in nominal income GDP component #;
+Equation
+ E_delGDPINCa (all,d,DST) delGDPINC(d,"Land")
+    = 0.01*LND_I(d)*wlnd_i(d);
+ E_delGDPINCb (all,d,DST) delGDPINC(d,"Capital")
+    = 0.01*CAP_I(d)*wcap_i(d);
+ E_delGDPINCc (all,d,DST) delGDPINC(d,"Labour")
+    = 0.01*LAB_IO(d)*wlab_io(d);
+ E_delGDPINCd (all,d,DST) delGDPINC(d,"ProdTax") = sum{i,IND,delPTX(i,d)};
+ E_delGDPINCe (all,d,DST) delGDPINC(d,"ComTax") = sum{c,COM,sum{s,SRC,
+ sum{i,IND,delTAXint(c,s,i,d)}+
+  delTAXhou(c,s,d)+delTAXinv(c,s,d)+delTAXgov(c,s,d)+delTAXexp(c,s,d)}};
+
+Variable  (all,d,DST) wgdpinc(d) # Nominal income GDP #;
+Equation E_wgdpinc
+ (all,d,DST) GDPINC(d)*wgdpinc(d) = 100*sum{i,GDPINCCAT, delGDPINC(d,i)};
+
+Coefficient (all,d,DST) PERCAPGDP(d) # Per capita GDP #;
+Formula     (all,d,DST) PERCAPGDP(d) = 1000*GDPINC(d)/POP(d);
+Write PERCAPGDP to file SUMMARY header "PCGD";
+
+Coefficient (all,d,DST) PERCAPLAB(d) # Per capita labour income #;
+Formula     (all,d,DST) PERCAPLAB(d) = 1000*LAB_IO(d)/POP(d);
+Write PERCAPLAB to file SUMMARY header "PCLB";
+
+! Excerpt 29 of TABLO input file: !
+! Principal components of real and nominal expenditure side GDP !
+Set GDPEXPCAT (HOU, INV, GOV, STOCKS, EXP, Imports, RExports, RImports, NetMar);
+Subset FINDEM is subset of GDPEXPCAT;
+Coefficient (all,i,GDPEXPCAT)(all,q,DST) GDPEXPSUM(q,i) # Expend GDP breakdown#;
+Formula     (all,i,GDPEXPCAT)(all,q,DST) GDPEXPSUM(q,i) = 0;
+(all,q,DST)(all,f,FINDEM) GDPEXPSUM(q,f) = sum{c,COM, PUR_S(c,f,q)};
+(all,q,DST) GDPEXPSUM(q,"Stocks")  =  sum{i,IND, STOCKS(i,q)};
+(all,q,REG) GDPEXPSUM(q,"Imports") = -sum{c,COM, TRADE_D(c,"imp",q)};
+(all,q,REG) GDPEXPSUM(q,"NetMar")  =  sum{m,MAR, sum{r,ORG,
+       SUPPMAR_D(m,r,q) - SUPPMAR_P(m,r,q) }};
+(all,q,REG) GDPEXPSUM(q,"Rexports") =
+      sum{c,COM,sum{s,SRC, TRADE_D(c,s,q) - TRDIAG(c,s,q)}};
+(all,q,REG) GDPEXPSUM(q,"Rimports") =
+    - sum{c,COM,sum{s,SRC, TRADE_R(c,s,q) - TRDIAG(c,s,q)}};
+
+Write GDPEXPSUM to file SUMMARY header "GESM";
+
+Coefficient (all,d,DST) GDPEXP(d)# Expenditure GDP #;
+Formula     (all,d,DST) GDPEXP(d) = sum{i,GDPEXPCAT, GDPEXPSUM(d,i)};
+
+Variable (change) (all,i,GDPEXPCAT)(all,d,DST)
+      delXGDPEXP(d,i)# Ordinary change in quantity expenditure GDP component #;
+Equation
+ E_delXGDPEXPa (all,d,DST)(all,u,FINDEM) delXGDPEXP(d,u)
+    = 0.01*PUR_CS(u,d)*xfin(u,d);
+ E_delXGDPEXPb (all,d,DST) delXGDPEXP(d,"Stocks")
+    = 0.01*sum{i,IND,STOCKS(i,d)*xstocks(i,d)};
+ E_delXGDPEXPc (all,q,REG) delXGDPEXP(q,"Imports")
+    =-0.01*sum{c,COM, TRADE_D(c,"imp",q)*xtrad_d(c,"imp",q)};
+E_delXGDPEXPd (all,q,REG) delXGDPEXP(q,"NetMar")
+    = 0.01*sum{m,MAR, sum{r,ORG,
+        sum{d,DST, SUPPMAR(m,r,d,q)*xsuppmar(m,r,d,q)}
+      - sum{p,PRD, SUPPMAR(m,r,q,p)*xsuppmar(m,r,q,p)}  }};
+E_delXGDPEXPe (all,q,REG) delXGDPEXP(q,"Rexports")
+    = 0.01*sum{c,COM, sum{s,SRC,
+        TRADE_D(c,s,q)*xtrad_d(c,s,q)
+                 - TRDIAG(c,s,q)*xtrad(c,s,q,q)  }};
+E_delXGDPEXPf (all,q,REG) delXGDPEXP(q,"Rimports")
+    =-0.01*sum{c,COM, sum{s,SRC,
+          TRADE_R(c,s,q)*xtrad_r(c,s,q)
+                 - TRDIAG(c,s,q)*xtrad(c,s,q,q)  }};
+
+!Variable (all,d,DST)(all,i,GDPEXPCAT)  
+     xXGDPEXP(d,i)# Percent change in quantity expenditure GDP component #;
+Equation E_xXGDPEXP (all,d,DST)(all,i,GDPEXPCAT)
+  ID01[GDPEXPSUM(d,i)]*xXGDPEXP(d,i)= 100*delXGDPEXP(d,i);!
+
+Equation E_xgdpexp
+ (all,d,DST) GDPEXP(d)*xgdpexp(d) = 100*sum{i,GDPEXPCAT, delXGDPEXP(d,i)};
+
+Variable (change) (all,d,DST)(all,i,GDPEXPCAT)
+   delPGDPEXP(d,i) # Ordinary change in price expenditure GDP component #;
+Equation
+ E_delPGDPEXPa (all,d,DST)(all,u,FINDEM) delPGDPEXP(d,u)
+    = 0.01*PUR_CS(u,d)*pfin(u,d);
+ E_delPGDPEXPb (all,d,DST) delPGDPEXP(d,"Stocks")
+    = 0.01*sum{i,IND, STOCKS(i,d)*ptot(i,d)};
+ E_delPGDPEXPc (all,q,REG) delPGDPEXP(q,"Imports")
+    =-0.01*sum{c,COM, TRADE_D(c,"imp",q)*pimp(c,q)};
+E_delPGDPEXPd (all,q,REG) delPGDPEXP(q,"NetMar")
+    = 0.01*sum{m,MAR,  SUPPMAR_RD(m,q)*pdom(m,q)
+        -  sum{p,PRD, SUPPMAR_R(m,q,p)*pdom(m,p)}};
+E_delPGDPEXPe (all,q,REG) delPGDPEXP(q,"Rexports") = 0.01*sum{c,COM,sum{s,SRC,
+    [TRADE_D(c,s,q) - TRDIAG(c,s,q)]*pbasic(c,s,q)}};
+E_delPGDPEXPf (all,q,REG) delPGDPEXP(q,"Rimports") =-0.01*sum{c,COM,sum{s,SRC,
+    sum{r,ORG, TRADE(c,s,r,q)*pbasic(c,s,r)} - TRDIAG(c,s,q)*pbasic(c,s,q)}};
+
+Variable (change) (all,d,DST)(all,i,GDPEXPCAT)
+  delVGDPEXP(d,i) # Ordinary change in value expenditure GDP component #;
+Equation E_delVGDPEXP (all,d,DST)(all,i,GDPEXPCAT)
+  delVGDPEXP(d,i) = delPGDPEXP(d,i) + delXGDPEXP(d,i);
+
+!Variable (all,d,DST)(all,i,GDPEXPCAT) 
+  pPGDPEXP(d,i)# Percent change in price expenditure GDP component #;
+Equation E_pPGDPEXP (all,d,DST)(all,i,GDPEXPCAT)
+  ID01[GDPEXPSUM(d,i)]*pPGDPEXP(d,i)= 100*delPGDPEXP(d,i);!
+
+Variable  (all,d,DST) pgdpexp(d) # Price index expenditure GDP #;
+Equation E_pgdpexp
+ (all,d,DST) GDPEXP(d)*pgdpexp(d) = 100*sum{i,GDPEXPCAT, delPGDPEXP(d,i)};
+
+Variable  (all,d,DST) wgdpexp(d) # Nominal expenditure GDP #;
+Equation E_wgdpexp   (all,d,DST) wgdpexp(d) = xgdpexp(d) + pgdpexp(d);
+
+Variable  (all,d,DST) wgdpdiff(d) # SHOULD=0: nominal (income - expend) GDP #;
+Equation E_wgdpdiff (all,d,DST) wgdpdiff(d) = wgdpinc(d) - wgdpexp(d);
+
+! GNE measures !
+Set GNECAT # Parts of GNE # (HOU, INV, GOV, STOCKS);
+Subset GNECAT is subset of GDPEXPCAT;
+Coefficient (all,d,DST) GNE(d) # Regional GNE #;
+Formula (all,d,DST) GNE(d) = sum{i,GNECAT, GDPEXPSUM(d,i)};
+Variable
+(all,d,DSTPLUS) xgne(d) # Real GNE #;
+(all,d,DSTPLUS) pgne(d) # Price index GNE #;
+(all,d,DSTPLUS) wgne(d) # Nominal GNE #;
+Equation
+E_xgneA (all,d,DST) GNE(d)*xgne(d) = 100*sum{i,GNECAT, delXGDPEXP(d,i)};
+E_xgneB  sum{d,DST, GNE(d)*[xgne(d)-xgne("National")]} = 0;
+E_pgneA (all,d,DST) GNE(d)*pgne(d) = 100*sum{i,GNECAT, delPGDPEXP(d,i)};
+E_pgneB  sum{d,DST, GNE(d)*[pgne(d)-pgne("National")]} = 0;
+E_wgne (all,d,DSTPLUS) wgne(d) = pgne(d) + xgne(d);
+
+! Variables to assist with regional budget-neutrality !
+Variable
+(change) (all,d,DST) delINDTAX(d) # Ordinary change in indirect tax revenue #;
+Equation E_delINDTAX
+(all,d,DST) delINDTAX(d) = delGDPINC(d,"ProdTax") + delGDPINC(d,"ComTax");
+Variable (change) (all,d,DST)
+  delBUDG1(d) # Ordinary change in [Indirect tax revenue - Gov spending] #;
+Equation E_delBUDG1 (all,d,DST)
+  delBUDG1(d) = delINDTAX(d) - delVGDPEXP(d,"Gov");
+Variable (change) (all,d,DST)
+  delBUDG2(d) # Ordinary change in [Commod tax revenue - Gov spending] #;
+Equation E_delBUDG2 (all,d,DST)
+  delBUDG2(d) = delGDPINC(d,"ComTax") - delVGDPEXP(d,"Gov");
+
+! Decomposition of contributions to % regional real GDP expenditure !
+Coefficient (all,d,REG) RATIOGDPEXP(d)# (Current/initial) real expenditure GDP#;
+Formula  (initial)(all,d,REG) RATIOGDPEXP(d) = 1;
+Read (ifheaderexists) RATIOGDPEXP from file INFILE header "RGDE";
+Update            (all,d,REG) RATIOGDPEXP(d) = xgdpexp(d);
+
+Variable (change) (all,i,GDPEXPCAT)(all,d,REG) contxgdpexp(i,d)
+ # Contributions to % regional real GDP expenditure #;
+Equation E_contxgdpexp (all,i,GDPEXPCAT)(all,d,REG)
+   GDPEXP(d)*contxgdpexp(i,d) = 100*RATIOGDPEXP(d)*delXGDPEXP(d,i);
+
+! Excerpt 30 of TABLO input file: !
+! Indices and components of national GDP expend  !
+Set NATGDPEXPCAT (HOU, INV, GOV, STOCKS, EXP, Imports);
+Subset NATGDPEXPCAT is subset of GDPEXPCAT;
+Subset FINDEM is subset of NATGDPEXPCAT;
+
+Coefficient (all,i,NATGDPEXPCAT) NATGDPEXPSUM(i) # Expend GDP breakdown#;
+Formula (all,i,NATGDPEXPCAT) NATGDPEXPSUM(i)=sum{q,DST, GDPEXPSUM(q,i)};
+Write NATGDPEXPSUM to file SUMMARY header "NGSM";
+
+Coefficient NATGDPEXP # Expenditure GDP #;
+Formula     NATGDPEXP = sum{d,DST, GDPEXP(d)};
+
+Variable (change) (all,i,GDPEXPCAT)
+      delNatXGDPEXP(i)# Ordinary change in quantity expenditure GDP component #;
+Equation E_delNatXGDPEXP  (all,i,GDPEXPCAT)
+    delNatXGDPEXP(i) = sum{d,DST, delXGDPEXP(d,i)};
+
+Variable (all,i,NATGDPEXPCAT)
+     xNatXGDPEXP(i) # Percent change in quantity expenditure GDP component #;
+Equation E_xNatXGDPEXP (all,i,NATGDPEXPCAT)
+  ID01[NATGDPEXPSUM(i)]*xNatXGDPEXP(i)= 100*delNatXGDPEXP(i);
+
+Variable   xnatgdpexp # Real expenditure GDP #;
+Equation E_xnatgdpexp
+  NATGDPEXP*xnatgdpexp  = 100*sum{i,NATGDPEXPCAT, delNatXGDPEXP(i)};
+
+Variable (change) (all,i,!NAT!GDPEXPCAT)
+       delNatPGDPEXP(i)# Ordinary change in price expenditure GDP component #;
+Equation E_delNatPGDPEXP  (all,i,!NAT!GDPEXPCAT)
+      delNatPGDPEXP(i) = sum{d,DST, delPGDPEXP(d,i)};
+
+Variable (change) (all,i,!NAT!GDPEXPCAT)
+       delNatWGDPEXP(i)# Ordinary change in value expenditure GDP component #;
+Equation E_delNatWGDPEXP  (all,i,!NAT!GDPEXPCAT)
+      delNatWGDPEXP(i) = delNatPGDPEXP(i) + delNatXGDPEXP(i);
+
+Variable  pnatgdpexp # Price index expenditure national GDP #;
+Equation E_pnatgdpexp
+  NATGDPEXP*pnatgdpexp = 100*sum{i,NATGDPEXPCAT, delNatPGDPEXP(i)};
+
+Variable   wnatgdpexp # Nominal expenditure GDP #;
+Equation E_wnatgdpexp   wnatgdpexp = xnatgdpexp+pnatgdpexp;
+
+Variable wnatgdpinc # Nominal income GDP #;
+Equation E_wnatgdpinc sum{d,DST, GDPINC(d)*[wgdpinc(d)-wnatgdpinc]} = 0;
+
+Variable  wnatgdpdiff  # SHOULD=0: nominal (income - expend) GDP #;
+Equation E_wnatgdpdiff  wnatgdpdiff  = wnatgdpinc - wnatgdpexp;
+
+Set ELSTRAD # Trade elasticities # (SIGMADOMIMP,SIGMADOMDOM,EXP_ELAST);
+Coefficient (all,c,COM)(all,e,ELSTRAD) TRADELAST(c,e) # Trade elasticities #;
+Formula (all,c,COM)(all,e,ELSTRAD) TRADELAST(c,e) = 0;
+ (all,c,COM) TRADELAST(c,"EXP_ELAST")   = EXP_ELAST(c);
+ (all,c,COM) TRADELAST(c,"SIGMADOMIMP") = SIGMADOMIMP(c);
+ (all,c,COM) TRADELAST(c,"SIGMADOMDOM") = SIGMADOMDOM(c);
+Write TRADELAST to file SUMMARY header "TREL";
+
+! Excerpt 31 of TABLO input file: !
+! Regional macro reporting variables !
+Coefficient
+(all,s,SRC)(all,d,DST) TRADE_CR(s,d) # Total direct demands dest d #;
+Formula
+(all,s,SRC)(all,d,DST) TRADE_CR(s,d) = sum{c,COM, TRADE_R(c,s,d)};
+
+Coefficient (all,d,DST) IMPUSED_C(d) # Imports used in d #;
+Formula     (all,d,DST) IMPUSED_C(d) = TRADE_CR("imp",d);
+Variable
+ (all,c,COM)(all,d,DST) ximps(c,d) # Volume of imports used in d #;
+ (all,d,DST) ximpused(d) # Volume of imports used in d #;
+ (all,d,DST) pimpused(d) # Price index, imports used in d #;
+Equation E_ximps (all,c,COM)(all,d,DST) ximps(c,d) =xtrad_r(c,"imp",d);
+
+Equation E_ximpused (all,d,DST) IMPUSED_C(d)*ximpused(d) =
+              sum{c,COM,TRADE_R(c,"imp",d)*ximps(c,d)};
+Equation E_pimpused (all,d,DST) IMPUSED_C(d)*pimpused(d) =
+              sum{c,COM, sum{r,ORG,TRADE(c,"imp",r,d)*pimp(c,r)}};
+
+Coefficient (all,r,ORG) IMPLANDED_C(r) # Imports landed in r #;
+Formula     (all,r,ORG) IMPLANDED_C(r) = sum{c,COM, TRADE_D(c,"imp",r)};
+Variable
+ (all,r,ORG) ximplanded(r) # Volume of imports landed in d #;
+ (all,r,ORG) pimplanded(r) # Price index, imports landed in d #;
+Equation E_ximplanded (all,r,ORG) ID01[IMPLANDED_C(r)]*ximplanded(r) =
+              sum{c,COM,TRADE_D(c,"imp",r)*xtrad_d(c,"imp",r)};
+Equation E_pimplanded (all,r,ORG) ID01[IMPLANDED_C(r)]*pimplanded(r) =
+              sum{c,COM,TRADE_D(c,"imp",r)*pimp(c,r)};
+
+Set MAINMACROS # Convenient macros for reporting #
+ (RealHou, RealInv, RealGov, ExpVol, ImpVolUsed, ImpsLanded, RealGDP, RealGNE, AggEmploy,
+  realwage_io, plab_io, AggCapStock, GDPPI, GNEPI, CPI, ExportPI, ImpsLandedPI,
+  Population, NomHou, NomGDPexp, NomGDPinc);
+Variable
+(all,m,MAINMACROS)(all,q,REGPLUS) MainMacro(m,q)
+                               # Convenient macros for reporting #;
+(all,m,MAINMACROS) NatMacro(m) # National macros for reporting #;
+
+Equation
+ E_MainMacroA (all,q,REG) MainMacro("RealHou",q) = xfin("Hou",q);
+ E_MainMacroB (all,q,REG) MainMacro("RealInv",q) = xfin("Inv",q);
+ E_MainMacroC (all,q,REG) MainMacro("RealGov",q) = xfin("Gov",q);
+ E_MainMacroD (all,q,REG) MainMacro("ExpVol",q) = xfin("Exp",q);
+ E_MainMacroE (all,q,REG) MainMacro("ImpVolUsed",q) = ximpused(q);
+ E_MainMacroF (all,q,REG) MainMacro("ImpsLanded",q) = ximplanded(q);
+ E_MainMacroG (all,q,REG) MainMacro("RealGDP",q) = xgdpexp(q);
+ E_MainMacroH (all,q,REG) MainMacro("RealGNE",q) = xgne(q);
+ E_MainMacroI (all,q,REG) MainMacro("AggEmploy",q) = xlab_io(q);
+ E_MainMacroJ (all,q,REG) MainMacro("realwage_io",q) = realwage_io(q);
+ E_MainMacroK (all,q,REG) MainMacro("plab_io",q) = plab_io(q);
+ E_MainMacroL (all,q,REG) MainMacro("AggCapStock",q) = xcap_i(q);
+ E_MainMacroM (all,q,REG) MainMacro("CPI",q) = pfin("Hou",q);
+ E_MainMacroN (all,q,REG) MainMacro("GDPPI",q) = pgdpexp(q);
+ E_MainMacroO (all,q,REG) MainMacro("GNEPI",q) = pgne(q);
+ E_MainMacroP (all,q,REG) MainMacro("ExportPI",q) = pfin("Exp",q);
+ E_MainMacroQ (all,q,REG) MainMacro("ImpsLandedPI",q) = pimplanded(q);
+ E_MainMacroR (all,q,REG) MainMacro("Population",q) = nhou(q);
+ E_MainMacroS (all,q,REG) MainMacro("NomHou",q) = wfin("Hou",q);
+ E_MainMacroT (all,q,REG) MainMacro("NomGDPexp",q) = wgdpexp(q);
+ E_MainMacroU (all,q,REG) MainMacro("NomGDPinc",q) = wgdpinc(q);
+ E_MainMacroV (all,m,MAINMACROS) MainMacro(m,"National") = NatMacro(m);
+
+
+
+
+
+Set SELMACROS # Selected macros for reporting # (RealHou, RealInv, RealGov,
+   ExpVol, ImpVolUsed, RealGNE, RealGDP, AggEmploy, realwage_io, CPI, AggCapStock);
+Subset SELMACROS is subset of MAINMACROS;
+ 
+Variable
+(all,m,SELMACROS) (all,q,REGPLUS) SelMacro(m,q)  # Selected macros for reporting#;
+Equation
+E_SelMacro  (all,m,SELMACROS)(all,q,REGPLUS) SelMacro(m,q) = MainMacro(m,q);
+ 
+
+ 
+
+! Excerpt 32 of TABLO input file: !
+! Aggregation of regional macro variables to national macro variables !
+Coefficient
+ (all,m,MAINMACROS)(all,q,REG) WMAINMACRO(m,q) # Weights to aggregate macros #;
+ (all,m,MAINMACROS) WNATMACRO(m) # Total of WMainMacro #;
+ (all,m,MAINMACROS) RATIOMMACRO(m) # Initial/final ratio #;
+Formula
+ (all,q,REG) WMAINMACRO("RealHou",q) = PUR_CS("Hou",q);
+ (all,q,REG) WMAINMACRO("RealInv",q) = PUR_CS("Inv",q);
+ (all,q,REG) WMAINMACRO("RealGov",q) = PUR_CS("Gov",q);
+ (all,q,REG) WMAINMACRO("ExpVol",q) =  PUR_CS("Exp",q);
+ (all,q,REG) WMAINMACRO("ImpVolUsed",q) = IMPUSED_C(q);
+ (all,q,REG) WMAINMACRO("ImpsLanded",q) = IMPLANDED_C(q);
+ (all,q,REG) WMAINMACRO("RealGDP",q) = GDPEXP(q);
+ (all,q,REG) WMAINMACRO("RealGNE",q) = GNE(q);
+ (all,q,REG) WMAINMACRO("AggEmploy",q) = LAB_IO(q);
+ (all,q,REG) WMAINMACRO("realwage_io",q) = LAB_IO(q);
+ (all,q,REG) WMAINMACRO("plab_io",q) = LAB_IO(q);
+ (all,q,REG) WMAINMACRO("AggCapStock",q) = CAP_I(q);
+ (all,q,REG) WMAINMACRO("CPI",q) = PUR_CS("Hou",q);
+ (all,q,REG) WMAINMACRO("GDPPI",q) = GDPEXP(q);
+ (all,q,REG) WMAINMACRO("GNEPI",q) = GNE(q);
+ (all,q,REG) WMAINMACRO("ExportPI",q) = PUR_CS("Exp",q);
+ (all,q,REG) WMAINMACRO("ImpsLandedPI",q) = IMPLANDED_C(q);
+ (all,q,REG) WMAINMACRO("Population",q) = POP(q);
+ (all,q,REG) WMAINMACRO("NomHou",q) = PUR_CS("Hou",q);
+ (all,q,REG) WMAINMACRO("NomGDPexp",q) = GDPEXP(q);
+ (all,q,REG) WMAINMACRO("NomGDPinc",q) = GDPINC(q);
+ (all,m,MAINMACROS) WNATMACRO(m) = sum{q,REG, WMAINMACRO(m,q)};
+ (initial)(all,m,MAINMACROS) RATIOMMACRO(m) = 1;
+Write WMAINMACRO to file SUMMARY header "WMAC";
+
+Variable
+(change)(all,m,MAINMACROS)(all,q,REG)
+   contMainMacro(m,q) # Regional contributions to national macro results #;
+Update (all,m,MAINMACROS) RATIOMMACRO(m) = NatMacro(m);
+Equation E_NatMacro (all,m,MAINMACROS)
+   WNATMACRO(m)*NatMacro(m) =  sum{q,REG,WMAINMACRO(m,q)*MainMacro(m,q)};
+Equation E_contMainMacro (all,m,MAINMACROS)(all,q,REG)
+   WNATMACRO(m)*contMainMacro(m,q)
+      =  RATIOMMACRO(m)*WMAINMACRO(m,q)*MainMacro(m,q);
+
+Variable (change) shrBoT # National real balance of trade as % of real GDP #;
+! S=100B/G -> SG=100B -> SdG+GdS=100dB -> SGg/100+GdS=100dB -> Bg+GdS=100dB !
+Equation E_shrBoT
+[WNATMACRO("ExpVol")-WNATMACRO("ImpsLanded")]*NatMacro("RealGDP")
++ WNATMACRO("RealGDP")*shrBoT = WNATMACRO("ExpVol")*NatMacro("ExpVol")
+                              - WNATMACRO("ImpsLanded")*NatMacro("ImpsLanded");
+
+Variable ! shrBoTnom may be chosen as exogenous for trade balance constraint !
+ (change) shrBoTnom # National nominal balance of trade as % of nominal GDP #;
+! S=100B/G -> SG=100B -> SdG+GdS=100dB -> SGg/100+GdS=100dB -> Bg+GdS=100dB !
+Equation E_shrBoTnom
+[WNATMACRO("ExpVol")-WNATMACRO("ImpsLanded")]*NatMacro("NomGDPexp")
++ WNATMACRO("RealGDP")*shrBoTnom =
+  WNATMACRO("ExpVol")*[NatMacro("ExpVol")+NatMacro("ExportPI")]
+- WNATMACRO("ImpsLanded")*[NatMacro("ImpsLanded")+NatMacro("ImpsLandedPI")];
+
+Variable ! used to drive BOT towards zero !
+  shrBoTnom2 # Percent change version of shrBoTnom: BOT/GDP #;
+! S=B/G -> SG=X-M -> B(s+g) = Xx-Mm !
+Equation E_shrBoTnom2
+[WNATMACRO("ExpVol")-WNATMACRO("ImpsLanded")]*[shrBoTnom2+NatMacro("NomGDPexp")]
+= WNATMACRO("ExpVol")    *[NatMacro("ExpVol")    +NatMacro("ExportPI")]
+- WNATMACRO("ImpsLanded")*[NatMacro("ImpsLanded")+NatMacro("ImpsLandedPI")];
+
+Variable finvgdp # National Real Investment/Real GDP #;
+Equation E_finvgdp finvgdp = NatMacro("RealInv") - NatMacro("RealGDP");
+
+! Excerpt 33 of TABLO input file: !
+! Commodity contributions to selected national results !
+Set COMMACROS # MAINMACROS with commodity components #
+ (RealHou, RealInv, RealGov, ExpVol, ImpsLanded, CPI, ExportPI, ImpsLandedPI);
+Subset COMMACROS is subset of MAINMACROS;
+Variable (change)(all,c,COM)(all,m,COMMACROS)
+ contComMacro(c,m) # Commodity contributions to national macro results #;
+Equation
+ E_contComMacroA
+ (all,c,COM) WNATMACRO("RealHou")*contComMacro(c,"RealHou")
+   = RATIOMMACRO("RealHou")*sum{d,DST, PUR_S(c,"Hou",d)*xhou_s(c,d)};
+ E_contComMacroB
+ (all,c,COM) WNATMACRO("RealInv")*contComMacro(c,"RealInv")
+   = RATIOMMACRO("RealInv")*sum{d,DST, PUR_S(c,"Inv",d)*xinv_s(c,d)};
+ E_contComMacroC
+ (all,c,COM) WNATMACRO("RealGov")*contComMacro(c,"RealGov")
+  = RATIOMMACRO("RealGov")*sum{d,DST, PUR_S(c,"Gov",d)*xgov_s(c,d)};
+ != RATIOMMACRO("RealGov")*sum{d,DST,sum{s,SRC, PUR(c,s,"Gov",d)*xgov(c,s,d)}};!
+ E_contComMacroD
+ (all,c,COM) WNATMACRO("ExpVol")*contComMacro(c,"ExpVol")
+  = RATIOMMACRO("ExpVol")*sum{d,DST, PUR_S(c,"Exp",d)*xexp_s(c,d)};
+ != RATIOMMACRO("ExpVol")*sum{d,DST,sum{s,SRC, PUR (c,s,"Exp",d)*xexp(c,s,d)}};!
+ E_contComMacroE
+ (all,c,COM) WNATMACRO("ImpsLanded")*contComMacro(c,"ImpsLanded")
+   = RATIOMMACRO("ImpsLanded")*sum{r,ORG,TRADE_D(c,"imp",r)*xtrad_d(c,"imp",r)};
+ E_contComMacroF
+ (all,c,COM) WNATMACRO("CPI")*contComMacro(c,"CPI")
+   = RATIOMMACRO("CPI")*sum{d,DST, PUR_S(c,"Hou",d)*ppur_s(c,"Hou",d)};
+ E_contComMacroG
+ (all,c,COM) WNATMACRO("ExportPI")*contComMacro(c,"ExportPI")
+   = RATIOMMACRO("ExportPI")*sum{d,DST, PUR_S(c,"Exp",d)*ppur_s(c,"Exp",d)};
+ E_contComMacroH
+ (all,c,COM) WNATMACRO("ImpsLandedPI")*contComMacro(c,"ImpsLandedPI")
+   = RATIOMMACRO("ImpsLandedPI")*sum{r,ORG, TRADE_D(c,"imp",r)*pimp(c,r)};
+
+Variable ! equations to help check above !
+ (change) (all,m,COMMACROS) NatComMacrox(m) # Sum of contComMacro(c,m) #;
+          (all,m,COMMACROS) NatComMacro(m)  # Check:should = NatComMacrox(m) #;
+Equation
+E_NatComMacro  (all,m,COMMACROS) NatComMacro(m) = NatMacro(m);
+E_NatComMacrox (all,m,COMMACROS) NatComMacrox(m) = sum{c,COM,contComMacro(c,m)};
+
+! Excerpt 34 of TABLO input file: !
+! Aggregation of regional to national industry output -- value added weights !
+Coefficient (all,i,IND) PRIM_D(i)     # Total factor input to industry i #;
+    (all,i,IND) RATIOPRIM_D(i) # (Current/initial) ratio #;
+Formula (all,i,IND) PRIM_D(i) = sum{d,DST, PRIM(i,d)};
+Formula (initial)(all,i,IND) RATIOPRIM_D(i) =  1;
+Variable
+ (all,i,IND) natxtot(i) # National industry output -- value added weights #;
+(change)(all,i,IND)(all,d,DST)
+   contnatxtot(i,d) # Regional contributions to national industry output #;
+Update (all,i,IND) RATIOPRIM_D(i) =  natxtot(i);
+Equation E_natxtot  (all,i,IND)
+   PRIM_D(i)*natxtot(i) =  sum{d,DST,PRIM(i,d)*xtot(i,d)};
+Equation E_contnatxtot (all,i,IND)(all,d,DST)
+   PRIM_D(i) *contnatxtot(i,d) = RATIOPRIM_D(i)*PRIM(i,d)*xtot(i,d);
+
+Variable
+ (all,c,COM)(all,s,SRC) xtrad_rd(c,s)  # National direct use of goods #;
+Equation E_xtrad_rd
+ (all,c,COM)(all,s,SRC) ID01[TRADE_RD(c,s)]*xtrad_rd(c,s) =
+   sum{d,DST, TRADE_R(c,s,d)*xtrad_r(c,s,d)};
+
+Variable
+ (all,c,COM) natximp(c) # National imports #;
+ (all,c,COM) natxexp(c) # National exports #;
+Equation
+ E_natximp (all,c,COM) natximp(c) = xtrad_rd(c,"imp");
+ E_natxexp (all,c,COM) ID01[PUR_D(c,"dom","exp")]*natxexp(c) =
+       sum{d,DST,PUR(c,"dom","exp",d)*xexp(c,"dom",d)};
+
+Coefficient (all,c,COM) MAKE_IR(c) # National commodity outputs #;
+Formula     (all,c,COM) MAKE_IR(c) = sum{r,REG, MAKE_I(c,r)};
+Variable    (all,c,COM) natxcom(c) # National commodity outputs #;
+Equation E_natxcom
+ (all,c,COM) natxcom(c) = sum{r,REG, [MAKE_I(c,r)/MAKE_IR(c)]*xcom(c,r)};
+
+! Excerpt 35 of TABLO input file: !
+! National price and employment variables !
+Coefficient (all,i,IND) NATVTOT(i)   # Total national industry cost plus tax #;
+            (all,i,IND) LAB_OD(i)    # Total national wage cost #;
+            (all,i,IND) CAP_D(i)     # Total national capital rentals #;
+Formula     (all,i,IND) NATVTOT(i)   = sum{d,DST,VTOT(i,d)};
+            (all,i,IND) LAB_OD(i)    = sum{d,DST,LAB_O(i,d)};
+            (all,i,IND) CAP_D(i)     = sum{d,DST,CAP(i,d)};
+Variable    (all,i,IND) natptot(i)   # National output price average #;
+            (all,i,IND) natemploy(i) # National employment average #;
+            (all,i,IND) natwprim(i)  # National nominal factor payments #;
+            (all,i,IND) natxcap(i)   # National capital use #;
+Equation
+E_natptot (all,i,IND)
+  ID01[NATVTOT(i)]*natptot(i) = sum{d,DST,VTOT(i,d)*ptot(i,d)};
+E_natemploy (all,i,IND)
+  ID01[LAB_OD(i)]*natemploy(i) = sum{d,DST,LAB_O(i,d)*xlab_o(i,d)};
+E_natwprim (all,i,IND)
+  ID01[PRIM_D(i)]*natwprim(i) = sum{d,DST,PRIM(i,d)*wprim(i,d)};
+E_natxcap (all,i,IND)
+  ID01[CAP_D(i)]*natxcap(i) = sum{d,DST,CAP(i,d)*xcap(i,d)};
+Backsolve natptot   using E_natptot;
+Backsolve natemploy using E_natemploy;
+Backsolve natwprim  using E_natwprim;
+Backsolve natxcap   using E_natxcap;
+
+! Excerpt 36 of TABLO input file: !
+! Contributions of endowments, tech change and tax to national real GDP !
+! Keller decomposition
+These are matrices (best viewed by ViewHAR from the SOL file) which add
+up to the percent change in real GDP  !
+Set CONTINC # Contributors to national real income gdp change #
+(Land, Labour, Capital,                                     ! factors !
+ alnd, acap, alab_o, aprim, atot, aint_s, atrad, atradmar,  ! tech change !
+ PRODTAX, ComTax);                                          ! indirect taxes !
+
+Coefficient NATGDPINC # National income-side GDP #;
+            RATIOXGDP # (Current/initial) ratio, national real gdp #;
+Formula     NATGDPINC = sum{d,DST, GDPINC(d)};
+  (initial) RATIOXGDP = 1;
+Read (ifheaderexists) RATIOXGDP from file INFILE header "RGDP";
+Update      RATIOXGDP = NatMacro("RealGDP");
+
+Variable
+ (change)(all,i,IND)(all,d,DST)(all,c,CONTINC)
+  contincind(i,d,c) # Industry contribution terms to national real income gdp #;
+ (change)(all,i,IND)(all,c,CONTINC)
+  contincind_d(i,c) # Industry contribution terms to national real income gdp #;
+Equation E_contincind
+ (all,i,IND)(all,d,DST)(all,c,CONTINC) contincind(i,d,c) =
+[RATIOXGDP/NATGDPINC]*{
+  if[c="Land",    LND(i,d)*xlnd(i,d)]
++ if[c="Labour",  sum{o,OCC, LAB(i,o,d)*xlab(i,o,d)}]
++ if[c="Capital", CAP(i,d)*xcap(i,d)]
+- if[c="alnd",    LND(i,d)*alnd(i,d)]
+- if[c="Capital", CAP(i,d)*acap(i,d)]
+- if[c="alab_o",  LAB_O(i,d)*alab_o(i,d)]
+- if[c="aprim",   PRIM(i,d)*aprim(i,d)]
+- if[c="atot",    VCST(i,d)*atot(i,d)]
+- if[c="aint_s",  sum{k,COM, PUR_S(k,i,d)*aint_s(k,i,d)}]
++ if[c="prodtax", PRODTAX(i,d)*xtot(i,d)]};
+Backsolve contincind using E_contincind;
+Equation E_contincind_d
+ (all,i,IND)(all,c, CONTINC) contincind_d(i,c) =sum{d,DST, contincind(i,d,c)};
+
+Variable
+(change) (all,c,COM)(all,s,SRC)(all,d,DST)
+   continccom(c,s,d) # COMTAX contribution terms to national real income gdp #;
+Equation E_continccom
+(all,c,COM)(all,s,SRC)(all,d,DST)  continccom(c,s,d) =
+[RATIOXGDP/NATGDPINC]*{
+  sum{i,IND, TAX(c,s,i,d)*xint(c,s,i,d)}
+           + TAX(c,s,"hou",d)*xhou(c,s,d)
+           + TAX(c,s,"inv",d)*xinv(c,s,d)
+           + TAX(c,s,"gov",d)*xgov(c,s,d)
+           + TAX(c,s,"exp",d)*xexp(c,s,d)};
+
+Variable
+(change) (all,d,DST)(all,c,CONTINC) contincagg(d,c)
+    # Combined contribution terms to national real income gdp #;
+Equation E_contincagg
+ (all,d,DST)(all,c,CONTINC) contincagg(d,c) = sum{i,IND, contincind(i,d,c)}
++ if[c="comtax", sum{cc,COM,sum{s,SRC, continccom(cc,s,d)}}]
+- if[c="atradmar",[RATIOXGDP/NATGDPINC]*sum{k,COM,sum{s,SRC,sum{m,MAR,sum{r,ORG,
+        TRADMAR(k,s,m,r,d)*atradmar(k,s,m,r,d)}}}}]
+- if[c="atrad",[RATIOXGDP/NATGDPINC]*sum{k,COM,sum{s,SRC,sum{r,ORG,
+        DELIVRD(k,s,r,d)*atrad(k,s,r,d)}}}];
+
+Variable
+(change) (all,c,CONTINC) contincagg_d(c)
+    # Contribution terms to national real income gdp #;
+Equation E_contincagg_d
+ (all,c,CONTINC) contincagg_d(c) = sum{d,DST, contincagg(d,c)};
+
+! Excerpt 37 of TABLO input file: !
+! COM and REG contributions to national export and import price indices !
+Set TRADDIR (EXP, imp);
+Coefficient (all,t,TRADDIR) RatioTOT(t) # Terms of Trade #;
+Formula (initial)(all,t,TRADDIR) RatioTOT(t) = 1;
+Read (ifheaderexists) RatioTOT from file INFILE header "RTOT";
+Update
+ RatioTOT("exp") = NatMacro("ExportPI");
+ RatioTOT("imp") = NatMacro("ImpsLandedPI");
+Variable (change)(all,c,COM)(all,q,REG)(all,t,TRADDIR) contTrmsTrad(c,q,t)
+   # Contributions to national export and import price indices #;
+
+Equation E_contTrmsTradA
+(all,c,COM)(all,q,REG) WNATMACRO("ExpVol")*contTrmsTrad(c,q,"exp") =
+ RatioTOT("Exp")*PUR_S(c,"exp",q)*pfin("Exp",q);
+
+Equation E_contTrmsTradB
+(all,c,COM)(all,q,REG) WNATMACRO("ImpVolUsed")*contTrmsTrad(c,q,"imp") =
+ RatioTOT("Imp")*TRADE_D(c,"imp",q)*pimp(c,q);
+
+Variable (change) (all,i,NATGDPEXPCAT) contxnatgdpexp(i)
+ # Contributions to % national real GDP expenditure #;
+Equation E_contxnatgdpexp (all,i,NATGDPEXPCAT)
+   NATGDPEXP*contxnatgdpexp(i) = 100*RATIOXGDP*delNatXGDPEXP(i);
+
+! Excerpt 38 of TABLO input file: !
+! Labour market closure (comparative static) !
+
+! For each  OCC, choose ONE of these 6 (3 x 2) closures:
+Nationally, choose one of:
+1: national employment is fixed, national real wage varies
+     xlab_id exogenous; realwage_id and flabsup_id endogenous
+2: national real wage  is fixed, national supply elastic
+     realwage_id exogenous; xlab_id and flabsup_id endogenous
+3: national employment is positive function of national real wage
+     flabsup_id exogenous; xlab_id and realwage_id endogenous
+!
+Variable (all,o,OCC) flabsup_id(o)  # National wage shifter #;
+Equation E_labslack # National labour supply #
+ (all,o,OCC) ! 0.5 represents a labour supply elasticity value !
+  realwage_id(o) = [1/0.5]*xlab_id(o) + flabsup_id(o);
+! nb above equation does nothing if flabsup_id endogenous !
+
+!For regional labour supply, choose either:
+A: inter-regional labour migration driven by wage differentials between regions
+    [consistent with a national supply of each OCC CET-ting between regions ]
+B: no inter-regional wage differentials  !
+Variable
+ (all,o,OCC) labslack(o) # Slack to allow occ-specific employment constraint #;
+ (all,o,OCC)(all,d,DST) flabsupA(o,d) # Labour migration shifter #;
+ (all,o,OCC)(all,d,DST) flabsupB(o,d) # Labour migration shifter #;
+Equation E_flab_i # Inter-regional labour migration or labour supply #
+ (all,o,OCC)(all,d,DST) ! 1.1 represents a labour supply elasticity value !
+ realwage_i(o,d) = [1/1.1]*xlab_i(o,d) + flabsupA(o,d) + labslack(o);
+! for each OCC, choose ONE of flabsupA or flabsupB exogenous !
+Equation E_flabsupB # No inter-regional wage differentials #
+ (all,o,OCC)(all,d,DST) ! 1.0 represents an elasticity value !
+  realwage_i(o,d) = flabsupB(o,d) + labslack(o);
+
+! rule for awarding extra wages to certain industries !
+Variable
+(all,i,IND)(all,o,OCC)(all,d,DST) flab(i,o,d) # Wage shifter #;
+           (all,o,OCC)(all,d,DST) flab_i(o,d) # Wage shifter #;
+                      (all,d,DST) flab_io(d)  # Wage shifter #;
+                                  flab_iod    # National wage shifter #;
+                      (all,o,OCC) flab_id(o)  # National wage shifter #;
+
+Equation E_realwage  # Wage fixing rule #
+ (all,i,IND)(all,o,OCC)(all,d,DST)
+ realwage(i,o,d) = flab(i,o,d) +flab_i(o,d) +flab_io(d) +flab_id(o) +flab_iod;
+! usually realwage_i(o,d) will be determined by previous equations
+  so flab_i(o,d) will be endogenous !
+
+! Automatic closure for above will give
+                Variable     Size
+Exogenous           flab ;  IND*OCC*DST   Wage shifter
+Exogenous       flabsupA ;  OCC*DST   Labour migration shifter
+Exogenous     flabsup_id ;  OCC   National wage shifter
+Exogenous        flab_id ;  OCC   National wage shifter
+Exogenous        flab_io ;  DST   Wage shifter
+Exogenous       flab_iod ;  1   National wage shifter
+ 
+Above implements choice 3A above
+   [national labour supply curve plus regional wage differentials]
+Typical long-run swaps might be (newly exog at left):
+  swap xlab_id = flabsup_id;   ! ! fix national employment
+For a very shortrun closure (all real wages fixed), you could choose:
+  swap flab_i = flabsupA; ! ! switch off regional wage differentials
+  swap labslack = flabsup_id; ! ! switch off national labour supply mechanism
+ 
+Of course, you need not choose the same options for ALL occs !
+
+! Excerpt 39 of TABLO input file: !
+! Driving household consumption !
+Variable
+ (all,h,HOU)(all,d,DST) fhou(h,d)
+ # Regional propensity to consume from labour income #;
+ (all,h,HOU)(all,d,DST) fhou2(h,d)
+ # Regional propensity to consume from regional GDP #;
+  houslack # Consumption slack variable to accommodate national constraint #;
+
+Equation E_fhou (all,h,HOU)(all,d,DST)
+   whouhtot(h,d)  =  wlab_io(d) + fhou(h,d) + houslack;
+Equation E_fhou2 (all,h,HOU)(all,d,DST)
+   whouhtot(h,d)  =  wgdpexp(d) + fhou2(h,d) + houslack;
+
+Variable natfhou # National ratio, nominal household consumption to GDP #;
+Equation E_natfhou   NatMacro("NomHou") = natfhou + NatMacro("NomGDPexp");
+
+! Excerpt 40 of TABLO input file: !
+! Exports to ROW by region of production !
+! Strictly speaking, the concept of "Exports by region of production" is not
+  part of the TERM model. However, we can estimate them by making additional
+  common-sense assumptions [source share for exports is same as for overall
+  demand !
+Coefficient
+(all,c,COM)(all,r,ORG)(all,d,DST) ROWDEM(c,r,d) # Eventually exported goods #;
+(all,c,COM)(all,r,ORG) ROWDEM_D(c,r) # Eventually exported goods #;
+(all,c,COM)(all,r,REG) EXPSHR(c,r) # Share of output eventually exported #;
+Formula
+(all,c,COM)(all,r,ORG)(all,d,DST) ROWDEM(c,r,d)
+   = TRADE(c,"dom",r,d)*USE(c,"dom","Exp",d)/ID01[USE_U(c,"dom",d)];
+(all,c,COM)(all,r,ORG) ROWDEM_D(c,r) = sum{d,DST, ROWDEM(c,r,d)};
+(all,c,COM)(all,r,REG) EXPSHR(c,r) = ROWDEM_D(c,r)/[0.001+MAKE_I(c,r)];
+
+Write ROWDEM to file SUMMARY header "ROWD";
+Write EXPSHR to file SUMMARY header "SHXP";
+
+Set TRD (Import,Export);
+Coefficient
+(all,c,COM)(all,r,REG)(all,t,TRD) TRADEPRESSRE(c,r,t) # Trade pressure #;
+Formula ! TRADEPRESSRE is an approximation of demand elasticity !
+(all,c,COM)(all,r,REG) TRADEPRESSRE(c,r,"Import") = IMPSHR(c,r)*SIGMADOMIMP(c);
+(all,c,COM)(all,r,REG) TRADEPRESSRE(c,r,"Export") = EXPSHR(c,r)*EXP_ELAST(c);
+Write TRADEPRESSRE to file SUMMARY header "TPRS";
+
+Variable
+(all,c,COM)(all,r,ORG)(all,d,DST) xrowdem(c,r,d) # Eventually exported goods #;
+Equation E_xrowdem (all,c,COM)(all,r,ORG)(all,d,DST)
+  xrowdem(c,r,d) = xexp(c,"dom",d) - xtrad_r(c,"dom",d) + xtrad(c,"dom",r,d);
+
+Variable
+(all,c,COM)(all,r,ORG) xrowdem_d(c,r) # Eventually exported goods made in r #;
+Equation E_xrowdem_d (all,c,COM)(all,r,ORG)
+ ID01[ROWDEM_D(c,r)]*xrowdem_d(c,r) = sum{d,DST, ROWDEM(c,r,d)*xrowdem(c,r,d)};
+
+! Excerpt 41 of TABLO input file: !
+! Check of accounting identities !
+Coefficient
+ EP # Tiny value to avoid zerodivide error #;
+ (all,i,IND)(all,d,DST) CHECKA(i,d) # Net Output - MAKE_C #;
+ (all,i,IND)(all,d,DST) CKRATA(i,d) # Net Output / MAKE_C #;
+Formula
+EP=0.00001;
+(all,i,IND)(all,d,DST) CHECKA(i,d) = [VTOT(i,d) - STOCKS(i,d)] - MAKE_C(i,d);
+(all,i,IND)(all,d,DST) CKRATA(i,d) =
+                        [EP+VTOT(i,d) - STOCKS(i,d)] / [EP+MAKE_C(i,d)];
+Write
+ MAKE_C to file SUMMARY header "MAKC";
+ STOCKS to file SUMMARY header "STOK";
+ CHECKA to file SUMMARY header "CHKA";
+ CKRATA to file SUMMARY header "CKRA";
+
+Coefficient
+(all,c,COM)(all,s,SRC)(all,d,DST) CHECKB(c,s,d) # USE_U - DELIVRD_R #;
+(all,c,COM)(all,s,SRC)(all,d,DST) CKRATB(c,s,d) # USE_U / DELIVRD_R #;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST) CHECKB(c,s,d) = USE_U(c,s,d)-DELIVRD_R(c,s,d);
+(all,c,COM)(all,s,SRC)(all,d,DST) CKRATB(c,s,d) =
+                            [EP+USE_U(c,s,d)]/[EP+DELIVRD_R(c,s,d)];
+Write
+ USE_U  to file SUMMARY header "USEU";
+ DELIVRD_R  to file SUMMARY header "DVDR";
+ CHECKB to file SUMMARY header "CHKB";
+ CKRATB to file SUMMARY header "CKRB";
+
+Coefficient
+ (all,c,COM)(all,r,REG) CHECKC(c,r) # MAKE_I - demands #;
+ (all,c,COM)(all,r,REG) CKRATC(c,r) # MAKE_I / demands #;
+ (all,c,COM)(all,r,REG) DEMANDS(c,r) # Demands #;
+Formula
+ (all,c,COM)(all,r,REG) DEMANDS(c,r) = TRADE_D(c,"dom",r);
+ (all,m,MAR)(all,r,REG) DEMANDS(m,r) = DEMANDS(m,r) + SUPPMAR_RD(m,r);
+ (all,c,COM)(all,r,REG) CHECKC(c,r)  = MAKE_I(c,r) - DEMANDS(c,r);
+ (all,c,COM)(all,r,REG) CKRATC(c,r)  = [EP+MAKE_I(c,r)] / [EP+DEMANDS(c,r)];
+Write
+ CHECKC to file SUMMARY header "CHKC";
+ CKRATC to file SUMMARY header "CKRC";
+ MAKE_I to file SUMMARY header "MAKI";
+ DEMANDS to file SUMMARY header "DMDS";
+
+Coefficient
+(all,m,MAR)(all,r,ORG)(all,d,DST) CHECKD(m,r,d) # TRADMAR_CS - SUPPMAR_P #;
+(all,m,MAR)(all,r,ORG)(all,d,DST) CKRATD(m,r,d) # TRADMAR_CS / SUPPMAR_P #;
+Formula
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+   CHECKD(m,r,d) = TRADMAR_CS(m,r,d) - SUPPMAR_P(m,r,d);
+ (all,m,MAR)(all,r,ORG)(all,d,DST)
+   CKRATD(m,r,d) = [EP+TRADMAR_CS(m,r,d) ]/ [EP+SUPPMAR_P(m,r,d)];
+Write
+ TRADMAR_CS to file SUMMARY header "TMCS";
+ SUPPMAR_P  to file SUMMARY header "SPMP";
+ CHECKD     to file SUMMARY header "CHKD";
+ CKRATD     to file SUMMARY header "CKRD";
+
+Coefficient
+(all,c,COM)(all,d,DST) CHECKE(c,d) # INVEST_I - PUR_S(inv) #;
+(all,c,COM)(all,d,DST) CKRATE(c,d) # INVEST_I / PUR_S(inv) #;
+Formula (all,c,COM)(all,d,DST) CHECKE(c,d) = INVEST_I(c,d) - PUR_S(c,"Inv",d);
+ (all,c,COM)(all,d,DST) CKRATE(c,d)   =
+                      [EP+INVEST_I(c,d)] / [EP+PUR_S(c,"Inv",d)];
+Write
+ INVEST_I to file SUMMARY header "INVI";
+ PUR_S    to file SUMMARY header "PURS";
+ CHECKE   to file SUMMARY header "CHKE";
+ CKRATE   to file SUMMARY header "CKRE";
+
+Set CONSTRAINTS (A,B,c,d,e);
+Coefficient (all,c,CONSTRAINTS) SUMABS(c) # Sum absolute errors #;
+Formula
+ SUMABS("A") = sum{i,IND, sum{d,DST,            ABS[CHECKA(i,d)]}};
+ SUMABS("B") = sum{c,COM, sum{s,SRC, sum{d,DST, ABS[CHECKB(c,s,d)]}}};
+ SUMABS("C") = sum{c,COM, sum{r,REG,            ABS[CHECKC(c,r)]}};
+ SUMABS("D") = sum{m,MAR, sum{r,ORG, sum{d,DST, ABS[CHECKD(m,r,d)]}}};
+ SUMABS("E") = sum{c,COM, sum{d,DST,            ABS[CHECKE(c,d)]}};
+Write SUMABS to file SUMMARY header "SMAB";
+
+Coefficient TOL3 # Tolerance for CKRATx assertions (accounting identities) #;
+Formula     TOL3 = 0.02;
+Assertion
+# RATA near 1 # (all,i,IND)(all,d,DST)            ABS[1-CKRATA(i,d)]   < TOL3;
+# RATB near 1 # (all,c,COM)(all,s,SRC)(all,d,DST) ABS[1-CKRATB(c,s,d)] < TOL3;
+# RATC near 1 # (all,c,COM)(all,r,REG)            ABS[1-CKRATC(c,r)]   < TOL3;
+# RATD near 1 # (all,m,MAR)(all,r,ORG)(all,d,DST) ABS[1-CKRATD(m,r,d)] < TOL3;
+# RATE near 1 # (all,c,COM)(all,d,DST)            ABS[1-CKRATE(c,d)]   < TOL3;
+! alternate form, which does not check ratio values where diff is tiny
+# RATA near 1 # (all,i,IND)(all,d,DST:ABS[CHECKA(i,d)]>0.1)
+            ABS[1-CKRATA(i,d)]   < TOL3;
+# RATB near 1 # (all,c,COM)(all,s,SRC)(all,d,DST:ABS[CHECKB(c,s,d)]>0.1)
+            ABS[1-CKRATB(c,s,d)] < TOL3;
+# RATC near 1 # (all,c,COM)(all,r,REG:ABS[CHECKC(c,r)]>0.1)
+            ABS[1-CKRATC(c,r)]   < TOL3;
+# RATD near 1 # (all,m,MAR)(all,r,ORG)(all,d,DST:ABS[CHECKD(m,r,d)]>0.1)
+            ABS[1-CKRATD(m,r,d)] < TOL3;
+# RATE near 1 # (all,c,COM)(all,d,DST:ABS[CHECKE(c,d)]>0.1)
+            ABS[1-CKRATE(c,d)]   < TOL3; !
+
+! Excerpt 42 of TABLO input file: !
+! Attack problem of reporting % change in nothing !
+! Below variables MUST be endogenous and should be backsolved !
+Coefficient (parameter) SIGNIF # Threshold reporting value #;
+Formula     (initial)   SIGNIF = 1;
+
+Variable (all,i,IND)(all,d,DST) xtotsho(i,d) # Industry outputs #;
+Equation E_xtotSHO (all,i,IND)(all,d,DST)
+  xtotsho(i,d) = if(VTOT(i,d)>SIGNIF, xtot(i,d));
+Backsolve xtotsho using E_xtotSHO;
+
+Variable (all,c,COM)(all,d,DST) xexpSHO(c,d)
+   # Export demands for domestic all-region composite leaving port at d #;
+Equation E_xexpSHO (all,c,COM)(all,d,DST)
+  xexpSHO(c,d) = if(USE(c,"dom","exp",d)>SIGNIF, xexpd(c,d));
+Backsolve xexpSHO using E_xexpSHO;
+
+Variable (all,i,IND)(all,d,DST) xcapSHO(i,d) # Capital usage #;
+Equation E_xcapSHO (all,i,IND)(all,d,DST)
+  xcapSHO(i,d) = if(CAP(i,d)>SIGNIF, xcap(i,d));
+Backsolve xcapSHO using E_xcapSHO;
+
+Variable (all,i,IND)(all,d,DST) pcapSHO(i,d) # Rental price of capital #;
+Equation E_pcapSHO (all,i,IND)(all,d,DST)
+  pcapSHO(i,d) = if(CAP(i,d)>SIGNIF, pcap(i,d));
+Backsolve pcapSHO using E_pcapSHO;
+
+Variable (all,i,IND)(all,d,DST) xlab_oSHO(i,d) # Effective labour input #;
+Equation E_xlab_oSHO (all,i,IND)(all,d,DST)
+  xlab_oSHO(i,d) = if(LAB_O(i,d)>SIGNIF, xlab_o(i,d));
+Backsolve xlab_oSHO using E_xlab_oSHO;
+
+Variable (all,i,IND)(all,d,DST) xinvitotSHO(i,d) # Investment by industry #;
+Equation E_xinvitotSHO (all,i,IND)(all,d,DST)
+  xinvitotSHO(i,d) = if(INVEST_C(i,d)>SIGNIF, xinvitot(i,d));
+Backsolve xinvitotSHO using E_xinvitotSHO;
+
+! Excerpt 43 of TABLO input file: !
+! Reporting variables for inter-regional trade !
+Variable
+(all,c,COM)(all,r,REG) xdomexp(c,r)
+  # Amount good c made in r sent to other domestic regions (non-margin) #;
+(all,c,COM)(all,d,REG) xdomimp(c,d)
+# Amount domestic good c used in d made in other domestic regions (non-margin)#;
+(all,r,REG) xdomexp_c(r)
+  # Amount goods made in r sent to other domestic regions (non-margin) #;
+(all,d,REG) xdomimp_c(d)
+# Amount domestic goods used in d made in other domestic regions (non-margin) #;
+(all,c,COM)(all,r,REG) xdomloc(c,r) # Amount good c made in r and used in r #;
+Coefficient
+(all,c,COM)(all,r,REG) VDOMEXP(c,r)
+  # Value good c made in r sent to other domestic regions (non-margin) #;
+(all,c,COM)(all,d,REG) VDOMIMP(c,d)
+# Value domestic good c used in d made in other domestic regions (non-margin) #;
+(all,r,REG) VDOMEXP_C(r)
+  # Value goods made in r sent to other domestic regions (non-margin) #;
+(all,d,REG) VDOMIMP_C(d)
+# Value domestic goods used in d made in other domestic regions (non-margin) #;
+Formula
+(all,c,COM)(all,r,REG) VDOMEXP(c,r) = TRADE_D(c,"dom",r) - TRDIAG(c,"dom",r);
+(all,c,COM)(all,d,REG) VDOMIMP(c,d) = TRADE_R(c,"dom",d) - TRDIAG(c,"dom",d);
+(all,r,REG) VDOMEXP_C(r) = sum{c,COM,VDOMEXP(c,r)};
+(all,d,REG) VDOMIMP_C(d) = sum{c,COM,VDOMIMP(c,d)};
+Write VDOMEXP to file SUMMARY header "VDEX";
+Write VDOMIMP to file SUMMARY header "VDIM";
+
+Equation
+E_xdomexp (all,c,COM)(all,r,REG)
+ ID01[VDOMEXP(c,r)]*xdomexp(c,r) =
+  TRADE_D(c,"dom",r)*xtrad_d(c,"dom",r) - TRDIAG(c,"dom",r)*xtrad(c,"dom",r,r);
+
+E_xdomimp (all,c,COM)(all,d,REG)
+ ID01[VDOMIMP(c,d)]*xdomimp(c,d) =
+  TRADE_R(c,"dom",d)*xtrad_r(c,"dom",d) - TRADE(c,"dom",d,d)*xtrad(c,"dom",d,d);
+
+E_xdomexp_c (all,r,REG)
+ ID01[VDOMEXP_C(r)]*xdomexp_c(r) = sum{c,COM, VDOMEXP(c,r)*xdomexp(c,r)};
+
+E_xdomimp_c (all,d,REG)
+ ID01[VDOMIMP_C(d)]*xdomimp_c(d) = sum{c,COM, VDOMIMP(c,d)*xdomimp(c,d)};
+
+E_xdomloc (all,c,COM)(all,r,REG)
+ xdomloc(c,r) = xtrad(c,"dom",r,r);
+
+Backsolve xdomexp using E_xdomexp;
+Backsolve xdomimp using E_xdomimp;
+Backsolve xdomloc using E_xdomloc;
+
+! Excerpt 44 of TABLO input file: !
+! Local (and other) sales table for summary file !
+Coefficient
+(all,c,COM)(all,s,SRC)(all,m,MAINUSR)(all,d,DST)
+   VMAINUSE(c,s,m,d) # Simplified USE matrix #;
+Formula
+(all,c,COM)(all,s,SRC)(all,d,DST)
+   VMAINUSE(c,s,"INT",d)= sum{i,IND, USE(c,s,i,d)};
+(all,c,COM)(all,s,SRC)(all,m,FINDEM)(all,d,DST)
+   VMAINUSE(c,s,m,d) = USE(c,s,m,d);
+Write VMAINUSE to file SUMMARY header "VMNU";
+
+Coefficient (all,c,COM)(all,s,SRC)(all,r,REG)
+    LOCSHR(c,s,r) # Share local-made basic in direct use (delivered) #;
+Formula     (all,c,COM)(all,s,SRC)(all,r,REG)
+    LOCSHR(c,s,r) = TRDIAG(c,s,r)/ID01[USE_U(c,s,r)];
+Write LOCSHR to file SUMMARY header "LCSR";
+
+Coefficient (all,c,COM)(all,s,SRC)(all,r,REG)
+    LOCSHR_R(c,s,r) # Share basic in delivered #;
+Formula     (all,c,COM)(all,s,SRC)(all,r,REG)
+    LOCSHR_R(c,s,r) = TRADE_R(c,s,r)/ID01[USE_U(c,s,r)];
+Write LOCSHR_R to file SUMMARY header "LCRR";
+
+Set  MAINDEST  # Main destinations #  (INT, HOU, INV, GOV, MAR, OthReg, RowEXP);
+Set  MAINDESTX # Local direct main destinations #  (INT, HOU, INV, GOV);
+Subset  MAINDESTX is subset of MAINDEST;
+Subset  MAINDESTX is subset of MAINUSR;
+
+Coefficient
+(all,c,COM)(all,r,REG)(all,d,MAINDEST) VMAINDEST(c,r,d)
+# Main uses of dom com c made in r #;
+Formula
+(all,c,COM)(all,r,REG)(all,d,MAINDEST) VMAINDEST(c,r,d) = 42;
+(all,c,COM)(all,r,REG)(all,d,MAINDESTX)
+   VMAINDEST(c,r,d) = LOCSHR(c,"dom",r)*VMAINUSE(c,"dom",d,r);
+(all,c,NONMAR)(all,r,REG)VMAINDEST(c,r,"MAR") = 0;
+(all,m,MAR)(all,p,REG)VMAINDEST(m,p,"MAR") =
+   sum{r,ORG, sum{d,DST, SUPPMAR(m,r,d,p)}};
+(all,c,COM)(all,r,REG)VMAINDEST(c,r,"OthReg") =
+   TRADE_D(c,"dom",r)-TRDIAG(c,"dom",r);
+(all,c,COM)(all,r,REG)VMAINDEST(c,r,"RowEXP") =
+   LOCSHR(c,"dom",r)*USE(c,"dom","Exp",r);
+Write VMAINDEST to file SUMMARY header "VMDS";
+
+Coefficient (all,c,COM)(all,d,DST) CHECKDEST(c,d) # Check -- should be tiny #;
+Formula     (all,c,COM)(all,d,DST) CHECKDEST(c,d) = 42;
+ (all,c,COM)(all,d,REG)
+  CHECKDEST(c,d) = MAKE_I(c,d) -  sum{q,MAINDEST,VMAINDEST(c,d,q)};
+Write CHECKDEST to file SUMMARY header "CDST";
+
+Coefficient (all,c,COM)(all,d,MAINDEST)
+   NATMAINDEST(c,d) # Main uses of dom com c nationally #;
+Formula
+(all,c,COM)(all,d,MAINDEST) NATMAINDEST(c,d) = 42; ! should be overwritten !
+(all,c,COM)(all,d,MAINDESTX)
+    NATMAINDEST(c,d) = sum{r,REG, LOCSHR_R(c,"dom",r)*VMAINUSE(c,"dom",d,r)};
+(all,c,NONMAR) NATMAINDEST(c,"MAR") = 0;
+(all,m,MAR) NATMAINDEST(m,"MAR") = sum{p,REG,VMAINDEST(m,p,"MAR")};
+(all,c,COM) NATMAINDEST(c,"OthReg") = 0;
+(all,c,COM) NATMAINDEST(c,"RowEXP") =
+           sum{r,REG, LOCSHR_R(c,"dom",r)*VMAINUSE(c,"dom","EXP",r)};
+Write NATMAINDEST to file SUMMARY header "NMDS";
+
+Coefficient (all,c,COM)(all,d,MAINDEST) DIFFDEST(c,d)
+                                            # Check - row totals should = 0 #;
+Formula     (all,c,COM)(all,d,MAINDEST) DIFFDEST(c,d)
+               = sum{r,REG,VMAINDEST(c,r,d)} - NATMAINDEST(c,d);
+Write DIFFDEST to file SUMMARY header "DDST";
+
+! Excerpt 45 of TABLO input file: !
+! Separating delivered values into basic and margins components !
+Coefficient (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+ BASIC(c,s,u,d) # Estimate of Basic value USE #;
+Formula     (all,c,COM)(all,s,SRC)(all,u,USR)(all,d,DST)
+ BASIC(c,s,u,d) = USE(c,s,u,d)*TRADE_R(c,s,d)/ID01[DELIVRD_R(c,s,d)];
+Write BASIC to file SUMMARY header "BAS";
+
+! Each users expenditure on input margin costs !
+Coefficient
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TRADMAR_R(c,s,m,d) # Margins on trade matrix (at basic prices)#;
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  MARSHR_R(c,s,m,d) # Share of margin m in all-user delivered price #;
+(all,u,USR)(all,m,MAR)(all,d,DST) MARUSE(u,m,d) # Margins on total inputs #;
+Formula
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  TRADMAR_R(c,s,m,d) = sum{r,ORG, TRADMAR(c,s,m,r,d)};
+(all,c,COM)(all,s,SRC)(all,m,MAR)(all,d,DST)
+  MARSHR_R(c,s,m,d) = TRADMAR_R(c,s,m,d)/ID01[DELIVRD_R(c,s,d)];
+(all,u,USR)(all,m,MAR)(all,d,DST) MARUSE(u,m,d) =
+sum{c,COM,sum{s,SRC, USE(c,s,u,d)*MARSHR_R(c,s,m,d)}};
+Write MARUSE to file SUMMARY header "MARU";
+
+! new diagnostic April 07 - check if C, I, G, etc follow regional GDP !
+Coefficient (all,d,DST)(all,f,FINDEM) RATFINPUR(f,d)
+# [Final demands, purch value]/reg GDP at factor cost #;
+Formula     (all,d,DST)(all,f,FINDEM) RATFINPUR(f,d) = PUR_CS(f,d);
+Write RATFINPUR to file SUMMARY header "FPUR"
+  longname "final demands, purch value";
+Formula     (all,d,DST)(all,f,FINDEM) RATFINPUR(f,d) = RATFINPUR(f,d)/PRIM_I(d);
+Write RATFINPUR to file SUMMARY header "RPUR"
+  longname "[final demands, purch value]/reg GDP at factor cost";
+
+![[!
+! Exce rpt 46 of TABLO input file: !
+! Calculation of Macros for broad regions (corridors)  !
+File REGSUPP;
+Set AGGREG # Broad (corridor) regions #
+ read elements from file REGSUPP header "AREG";
+Mapping MAPREG from REG to AGGREG;
+Read (by_elements) MAPREG from file REGSUPP header "MREG";
+Variable (all,m,MAINMACROS)(all,A,AGGREG) ZoneMacro(m,A) # Broad region macros#;
+Equation E_ZoneMacro (all,m,MAINMACROS)(all,A,AGGREG)
+sum{q,REG:MAPREG(q)=A, WMAINMACRO(m,q)*[ZoneMacro(m,A)-MainMacro(m,q)]} = 0;
+ 
+Variable
+ (all,i,IND)(all,A,AGGREG) ZoneXtot(i,a) # Broad region output #;
+ (all,i,IND)(all,A,AGGREG) ZoneEmploy(i,a) # Broad region employment #;
+Equation
+ E_ZoneXtot (all,i,IND)(all,A,AGGREG)
+ ID01[sum{d,REG:MAPREG(d)=a ,PRIM(i,d)}]*ZoneXtot(i,a)
+    = sum{d,REG:MAPREG(d)=a ,PRIM(i,d)*xtot(i,d)};
+ E_ZoneEmploy (all,i,IND)(all,A,AGGREG)
+ ID01[sum{d,REG:MAPREG(d)=a ,LAB_O(i,d)}]*ZoneEmploy(i,a)
+    = sum{d,REG:MAPREG(d)=a ,LAB_O(i,d)*xlab_o(i,d)};
+ 
+Set SomeMACROS # subset of macros for reporting #
+(RealHou, RealInv, ExpVol, RealGDP, realwage_io, AggCapStock,  CPI);
+Subset SomeMACROS is subset of MAINMACROS;
+Set AGGREGplus = AGGREG + "Indonesia";
+Variable (all,m,someMACROS)(all,A,AGGREGplus) SomeMacro(m,A) # macro rpt #;
+Equation
+ E_SomeMacro1 (all,m,someMACROS)(all,A,AGGREG) SomeMacro(m,A) = ZoneMacro(m,A);
+ E_SomeMacro2 (all,m,someMACROS) SomeMacro(m,"Indonesia") = NatMacro(m);
+ 
+!]]!
+
+! Excerpt 46 of TABLO input file: !
+! Weights for aggregation of data or results !
+Coefficient
+ (all,c,COM)(all,q,REG) Import(c,q) # Imports CIF #;
+ (all,c,COM)(all,q,REG) Export(c,q) # Exports FOB #;
+Formula
+ (all,c,COM)(all,q,REG) Import(c,q) = TRADE_D(c,"imp",q);
+ (all,c,COM)(all,q,REG) Export(c,q) = PUR_S(c,"exp",q);
+Write
+Import   to file SUMMARY header "IMP"  longname "International regional imprts";
+INVEST_I to file SUMMARY header "VINV" longname "Investment costs";
+LAB_O    to file SUMMARY header "LAB"  longname "Labour costs";
+PRIM     to file SUMMARY header "PRIM" longname "Primary factor payments";
+VARCST   to file SUMMARY header "VCST" longname "Variable costs";
+CAP      to file SUMMARY header "CAP"  longname "Capital rentals";
+Export   to file SUMMARY header "VEXP" longname "Exports FOB";
+NATVTOT  to file SUMMARY header "NATV" longname "National output";
+HOUPUR_H to file SUMMARY header "HOUS";
+HOUSHR   to file SUMMARY header "HOUP";
+Set WAGG
+(xtot@@VTOT,
+ptot@@VTOT,
+xcap@@CAP,
+pcap@@CAP,
+pimp@@IMP,
+xhou@@HOUP,
+xinv@@VINV,
+plab@@LAB,
+xlab@@LAB,
+aprm@@PRIM,
+pvar@@VCST,
+xexp@@VEXP,
+ximp@@IMP,
+nvto@@@@NATV,
+munx@@@@MVTO,
+xhos@@@@HOUS);
+Write (Set) WAGG to file SUMMARY header "WAGG";
+
+! Excerpt 47 of TABLO input file: !
+! Extra material added from training course TERM !
+! Primary Factor Aggregates !
+Variable
+ (all,d,DST) plnd_i(d)  # Average land rent #;
+ (all,d,DST) pprim_i(d) # Price index factor-cost GDP #;
+ (all,d,DST) pcap_i(d)  # Average capital rent #;
+Equation
+E_plnd_i (all,d,DST)
+  LND_I(d)*plnd_i(d)   = sum{i,IND,LND(i,d)*plnd(i,d)};
+E_pcap_i (all,d,DST)
+  CAP_I(d)*pcap_i(d)   = sum{i,IND,CAP(i,d)*pcap(i,d)};
+E_pprim_i (all,d,DST)
+  PRIM_I(d)*pprim_i(d) = sum{i,IND,PRIM(i,d)*pprim(i,d)};
+
+Variable
+ xlnd_id  # Aggregate land, rental-weighted #;
+ plnd_id  # Average land rent #;
+ xcap_id  # Aggregate capital, rental-weighted #;
+ pcap_id  # Average capital rent #;
+ xprim_id # Factor-cost GDP (includes only some tech change) #;
+ pprim_id # Price index factor-cost GDP #;
+Equation
+ E_xlnd_id  sum{d,DST,  LND_I(d)*[ xlnd_i(d) -xlnd_id]}=0;
+ E_plnd_id  sum{d,DST,  LND_I(d)*[ plnd_i(d) -plnd_id]}=0;
+ E_xcap_id  sum{d,DST,  CAP_I(d)*[ xcap_i(d) -xcap_id]}=0;
+ E_pcap_id  sum{d,DST,  CAP_I(d)*[ pcap_i(d) -pcap_id]}=0;
+ E_xprim_id sum{d,DST, PRIM_I(d)*[xprim_i(d)-xprim_id]}=0;
+ E_pprim_id sum{d,DST, PRIM_I(d)*[pprim_i(d)-pprim_id]}=0;
+
+Variable (all,i,NATGDPEXPCAT)
+     pNatXGDPEXP(i) # Percent change in price expenditure GDP component #;
+Equation E_pNatXGDPEXP (all,i,NATGDPEXPCAT)
+  ID01[NATGDPEXPSUM(i)]*pNatXGDPEXP(i)= 100*delNatPGDPEXP(i);
+
+Variable  natpgdpexp # Price index expenditure national GDP #;
+Equation E_natpgdpexp
+  NATGDPEXP*natpgdpexp = 100*sum{i,NATGDPEXPCAT, delNatPGDPEXP(i)};
+
+! Variables for national BOTE explanations !
+
+Variable
+natxgne # National real GNE #;
+natpgne # National GNE price index #;
+natwgne # National nominal GNE #;
+gret_id # Economy-wide rate of return #;
+Equation
+E_natxgne natxgne = xgne("National");
+E_natpgne natpgne = pgne("National");
+E_natwgne natwgne = natxgne + natpgne;
+E_gret_id gret_id = pcap_id - natpfin("Inv");
+
+! Effective price of labour -- including labour-saving tech change !
+Variable pLabEff # Effective price of labour, inc. labour-saving tech change #;
+Equation E_pLabEff
+ sum{i,IND, sum{d,DST, LAB_O(i,d)*[plab_o(i,d)+alab_o(i,d)-pLabEff]}}=0;
+
+Set BOTEVARS # Useful price ratios for BOTE # (pLabEf_pprim, pLabEf_CPI,
+CPI_pGNE, pGNE_pGDP, pGDP_pprim, pcap_pprim, pcap_pinv, pinv_pgne);
+Variable (all,B,BOTEVARS) bote(B) # Useful price ratios for BOTE #;
+Equation
+E_boteA bote("pLabEf_pprim")= pLabEff - pprim_id;
+E_boteB bote("pLabEf_CPI")  = pLabEff - natpfin("Hou");! constant in short run?!
+E_boteC bote("CPI_pGNE")    = natpfin("Hou") - natpgne;
+E_boteD bote("pGNE_pGDP")   = natpgne - natpgdpexp;      ! = f(terms of trade) !
+E_boteE bote("pGDP_pprim")  = natpgdpexp - pprim_id;     ! = f(indirect taxes) !
+E_boteF bote("pcap_pprim")  = pcap_id - pprim_id;
+E_boteG bote("pcap_pinv")   = pcap_id - natpfin("Inv"); ! constant in long run?!
+E_boteH bote("pinv_pgne")   = natpfin("Inv") - natpgne;! might not change much !
+
+Variable prealdev # Real devaluation = imports PI - GDP PI #;
+Equation E_prealdev prealdev = NatMacro("ImpsLandedPI") - NatMacro("GDPPI");
+
+Variable ptoft # Terms of trade = exports PI - imports PI #;
+Equation E_ptoft ptoft = NatMacro("ExportPI") - NatMacro("ImpsLandedPI");
+
+Coefficient TRDSHR # Trade share in GDP (approx, used in BOTE) #;
+Formula   TRDSHR = 0.5*[NATGDPEXPSUM("EXP")-NATGDPEXPSUM("Imports")]/NATGDPEXP;
+Write     TRDSHR to file SUMMARY header "TSHR";
+
+! Excerpt 48 of TABLO input file: !
+! Reporting inter-regional trade !
+Coefficient
+(all,s,SRC)(all,r,ORG)(all,d,DST) TRADE_C(s,r,d)  # Inter-regional trade #;
+Formula
+(all,s,SRC)(all,r,ORG)(all,d,DST) TRADE_C(s,r,d) = sum{c,COM, TRADE(c,s,r,d)};
+Variable
+(all,s,SRC)(all,r,ORG)(all,d,DST) xtrad_c(s,r,d)  # Inter-province trade #;
+Equation E_xtrad_c  (all,s,SRC)(all,r,ORG)(all,d,DST)
+ID01[TRADE_C(s,r,d)]*xtrad_c(s,r,d) = sum{c,COM, TRADE(c,s,r,d)*xtrad(c,s,r,d)};
+Backsolve xtrad_c using E_xtrad_c;
+
+Set MARPLUS = "Basic" + MAR;
+Coefficient (all,c,COM)(all,s,SRC)(all,m,MARPLUS)(all,r,ORG)(all,d,DST)
+   TRADPLUS(c,s,m,r,d) # Basic + Margins on trade #;
+Formula (all,c,COM)(all,s,SRC)(all,m,MAR)(all,r,ORG)(all,d,DST)
+   TRADPLUS(c,s,m,r,d) = TRADMAR(c,s,m,r,d);
+Formula (all,c,COM)(all,s,SRC)(all,r,ORG)(all,d,DST)
+   TRADPLUS(c,s,"Basic",r,d) = TRADE(c,s,r,d);
+Write TRADPLUS to file SUMMARY header "TPLS";
+
+Set TREP (Exports, Imports, Output, ExpRat,RExports,RImports);
+Coefficient (all,c,COM)(all,r,REG)(all,t,TREP) TRADEREP(c,r,t) # Trade report #;
+Formula (all,c,COM)(all,r,REG)(all,t,TREP) TRADEREP(c,r,t) = 0;
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"Exports") = USE(c,"dom","Exp",r);
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"Imports") = TRADE_D(c,"imp",r);
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"Output")  = MAKE_I(c,r);
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"ExpRat")  =
+                      USE(c,"dom","Exp",r)/ID01[MAKE_I(c,r)];
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"Rexports")  =
+                          TRADE_D(c,"dom",r) - TRDIAG(c,"dom",r);
+  (all,c,COM)(all,r,REG) TRADEREP(c,r,"Rimports")  =
+                          TRADE_R(c,"dom",r) - TRDIAG(c,"dom",r);
+
+Write TRADEREP to file SUMMARY header "TREP";
+
+! Excerpt 49 of TABLO input file: !
+! Condensation actions !
+Omit !fgov! flab ahou_s asuppmar !atradmar! bint_s !atrad!;
+
+Substitute aint_s using E_aint_s;
+Substitute delTAXint using E_delTAXint;
+Substitute pmake using E_pmake;
+Substitute ppur using E_ppur;
+Substitute ppur_s using E_ppur_s;
+Substitute xint_s using E_xint_s;
+Substitute xinvi using E_xinvi;
+Substitute xmake using E_xmake;
+Substitute xtradmar using E_xtradmar;
+
+Backsolve contCPI using E_contCPI;
+Backsolve continccom using E_continccom;
+Backsolve contincind_d using E_contincind_d;
+Backsolve contMainMacro using E_contMainMacro;
+Backsolve contnatxtot using E_contnatxtot;
+Backsolve contxprim_i using E_contxprim_i;
+Backsolve delPTX using E_delPTX;
+Backsolve delTAXexp using E_delTAXexp;
+Backsolve delTAXgov using E_delTAXgov;
+Backsolve delTAXhou using E_delTAXhou;
+Backsolve delTAXinv using E_delTAXinv;
+Backsolve pcst using E_pcst;
+Backsolve pdelivrd using E_pdelivrd;
+Backsolve pinvest using E_pinvest;
+Backsolve plab using E_plab;
+Backsolve plab_o using E_plab_o;
+Backsolve pprim using E_pprim;
+Backsolve psuppmar_p using E_psuppmar_p;
+Backsolve realwage using E_realwage;
+Backsolve wlab_i using E_wlab_i;
+Backsolve xgov using E_xgov;
+Backsolve xhouh_s using E_xhouh_s;
+Backsolve xhou_s using E_xhou_s;
+Substitute xint using E_xint;
+Backsolve xinv using E_xinv;
+Backsolve xinv_s using E_xinv_s;
+Backsolve xlab using E_xlab;
+Backsolve xlab_o using E_xlab_o;
+Backsolve xlux using E_xlux;
+Backsolve xprim using E_xprim;
+Backsolve xrowdem using E_xrowdem;
+Backsolve xrowdem_d using E_xrowdem_d;
+Backsolve xstocks using E_xstocks;
+Backsolve xsub using E_xsub;
+Backsolve xsuppmar using E_xsuppmar;
+Backsolve xsuppmar_d using E_xsuppmar_d;
+Backsolve xtrad_d using E_xtrad_d;
+
+![[! ! Exc erpt 48 of TABLO input file: !
+
+! Indonesian project: Saving in logistic expenses
+ A labour saving, equivalent to X percent of each industry's expenditure
+ on input transport margin costs. !
+Set TMAR # transport margins #
+   (RailTrans, RoadTrans, SeaTrans, RiverTrans, AirTrans, TransSvc);
+Subset TMAR is subset of MAR;
+Coefficient (all,u,USR)(all,d,DST) MARUSE_T(u,d) # transport margins #;
+Formula     (all,u,USR)(all,d,DST) MARUSE_T(u,d) = sum{m,TMAR, MARUSE(u,m,d)};
+ 
+!Variable (change) delLOGISTIC1 ;
+Variable (change) delLOGISTIC2 ;
+ 
+Coefficient (all,i,IND) ISTRADE(i);
+Formula     (all,i,IND) ISTRADE(i) = if(i="Trade",1); !
+ 
+! reduction in shipping or road where source or dest is one in EAST  !
+Set EAST (EC3_KALIMANT, EC4_SULAWESI, EC6_PAPUAMAL);
+Subset EAST is subset of AGGREG;
+Coefficient (all,a,AGGREG) EASTREG(a);
+Formula (all,a,AGGREG) EASTREG(a) = 0;  (all,a,EAST) EASTREG(a) = 1;
+Coefficient (all,r,ORG) ISEAST(r);
+Formula (all,r,ORG) ISEAST(r)=0; (all,r,REG) ISEAST(r) = EASTREG(MAPREG(r));
+Coefficient (all,r,REG) ISWEST(r);
+Formula (all,r,REG) ISWEST(r) = 1 - ISEAST(r);
+Coefficient
+ (all,r,ORG)(all,d,DST) INWEST(r,d) # = 1 if r and d in Java, Sum, Bali #;
+Formula
+ (all,r,ORG)(all,d,DST) INWEST(r,d) = 0;
+ (all,r,REG)(all,d,REG) INWEST(r,d) = ISWEST(r)*ISWEST(d);
+ 
+Set RoadShip (RoadTrans, SeaTrans);
+Subset RoadShip is subset of MAR;
+Coefficient (all,m,MAR) ISRoadShip(m);
+Formula (all,m,MAR) ISRoadShip(m)=0; (all,m,RoadShip) ISRoadShip(m)=1;
+ 
+!]]!
+
+! Excerpt 50 of TABLO input file: !
+! Dynamic Extension following ORANIGRD.DOC !
+
+! Capital Accumulation Mechanism !
+! This year, capital grows by [investment last year - depreciation] !
+Coefficient
+(parameter) (all,i,IND)(all,d,DST) DPRC(i,d)
+   # Rates of Depreciation (i.e. 0.08) #;
+ (all,i,IND)(all,d,DST) CAPSTOK(i,d)
+   # Current capital stock measured in current asset prices #;
+Read
+ CAPSTOK from file INFILE header "STOC";
+ DPRC    from file INFILE header "DPRC";
+Write CAPSTOK to file SUMMARY header "STOC"; !for aggregation weights!
+Update
+ (all,i,IND)(all,d,DST) CAPSTOK(i,d) = xcap(i,d)*pinvitot(i,d);
+
+Coefficient ! Both of the 2 below are measured in last year price units !
+(parameter) (all,i,IND)(all,d,DST)
+  CAPADD(i,d) # Addition to CAPSTOK from last year investment #;
+ (all,i,IND)(all,d,DST) CAPSTOK_OLDP(i,d)
+    # Current capstok measured in last years prices #;
+Formula
+ (initial)(all,i,IND)(all,d,DST) CAPADD(i,d)
+           = INVEST_C(i,d)-DPRC(i,d)*CAPSTOK(i,d);!not updated!
+ (initial)(all,i,IND)(all,d,DST) CAPSTOK_OLDP(i,d)=CAPSTOK(i,d);
+Update
+ (all,i,IND)(all,d,DST) CAPSTOK_OLDP(i,d)=xcap(i,d);
+
+Variable
+  (change)(all,i,IND)(all,d,DST) faccum(i,d)
+   # Shifter to switch on accumulation equation #;
+  (change) delUnity # Dummy variable, always exogenously set to one #;
+
+Equation E_faccum # Capital accumulation equation #
+ (all,i,IND)(all,d,DST) 0.01*CAPSTOK_OLDP(i,d)*xcap(i,d)
+  = CAPADD(i,d)*delUnity +faccum(i,d);
+!note: When above equation is active,
+faccum is exogenous and zero; delUnity is shocked to 1.0.
+Then RHS (like LHS) is the change in capital stock from last year investment
+both LHS and RHS are measured at start-of-period prices
+to switch off, put faccum endogenous; delUnity is exogenous but unshocked!
+
+! Excerpt 51 of TABLO input file: !
+! Dynamic extension investment rule !
+
+Coefficient (all,i,IND)(all,d,DST) GROSSRET(i,d) # PK/PI #;
+Formula (all,i,IND)(all,d,DST) GROSSRET(i,d)=CAP(i,d)/CAPSTOK(i,d);
+Coefficient (parameter)(all,i,IND)(all,d,DST) GROSSRET0(i,d) # Initial PK/PI #;
+Formula (initial) (all,i,IND)(all,d,DST) GROSSRET0(i,d)=GROSSRET(i,d);
+
+Coefficient (all,i,IND)(all,d,DST) GROSSGRO(i,d) # Investment/capital ratio #;
+Formula (all,i,IND)(all,d,DST) GROSSGRO(i,d)=INVEST_C(i,d)/CAPSTOK(i,d);
+
+Coefficient (all,i,IND)(all,d,DST) RNORMAL(i,d) # Normal gross rate of return #;
+Read  RNORMAL from file INFILE header "TARG";
+Variable (all,i,IND)(all,d,DST) rnorm(i,d) # Normal gross rate of return #;
+Update (all,i,IND)(all,d,DST) RNORMAL(i,d)=rnorm(i,d);
+
+Variable
+ (all,i,IND)(all,d,DST) frnorm(i,d) # Shifter of Normal gross rate of return #;
+  frnorm_id # Shifter of Normal gross rate of return #;
+Equation E_rnorm
+ (all,i,IND)(all,d,DST) rnorm(i,d) = frnorm(i,d)+frnorm_id;
+
+Coefficient
+(all,i,IND)(all,d,DST) GROTREND(i,d) # Trend investment/capital ratio #;
+Read GROTREND from file INFILE header "TFRO";
+Variable (all,i,IND)(all,d,DST) gtrend(i,d) # Trend investment/capital ratio #;
+Update (all,i,IND)(all,d,DST) GROTREND(i,d)=gtrend(i,d);
+
+Coefficient (parameter)(all,i,IND)(all,d,DST) QRATIO(i,d)
+ # (Max/trend) investment/capital ratio:i.e 4 #;
+Read QRATIO from file INFILE header "QRAT";
+
+Coefficient
+(parameter)(all,i,IND)(all,d,DST) ALPHA(i,d) # Investment elasticity #;
+Formula
+(initial)(all,i,IND)(all,d,DST) ALPHA(i,d) = 5.0;
+Read (ifheaderexists) ALPHA from file INFILE header "ALFA";
+
+Coefficient
+(all,i,IND)(all,d,DST) INVGRO(i,d) # Ratio current/initial investment #;
+Formula (initial)(all,i,IND)(all,d,DST) INVGRO(i,d) = 1.0;
+Update (all,i,IND)(all,d,DST) INVGRO(i,d) = xinvitot(i,d);
+
+Coefficient
+(all,i,IND)(all,d,DST) GROMAX(i,d) # Maximum investment/capital ratio #;
+Formula (all,i,IND)(all,d,DST) GROMAX(i,d)=QRATIO(i,d)*GROTREND(i,d);
+
+Variable
+ (change) (all,i,IND)(all,d,DST) delgret(i,d)
+ # Ordinary change in gross rate of return #;
+Equation E_delgret # Gross rate of return # (all,i,IND)(all,d,DST)
+  delgret(i,d) = 0.01*GROSSRET(i,d)*gret(i,d);
+
+Variable
+ (all,i,IND)(all,d,DST) gro(i,d)   # Planned investment/capital ratio #;
+ (all,i,IND)(all,d,DST) finv4(i,d) # Shifter for dynamic investment rule #;
+Equation E_finv4 # Set actual to planned investment/capital ratio #
+ (all,i,IND)(all,d,DST) ggro(i,d) = !INVGRO(i,d)*!gro(i,d) + finv4(i,d);
+
+Coefficient
+(all,i,IND)(all,d,DST) GRETEXP(i,d) # Expected gross rate of return #;
+Variable
+(change) (all,i,IND)(all,d,DST) delgretexp(i,d)
+ # Ordinary change in expected rate of return #;
+
+!  Read GRETEXP from file INFILE header "REXP";
+Update (change)(all,i,IND)(all,d,DST) GRETEXP(i,d) = delgretexp(i,d); !
+
+! Following alternative system calculates GRETEXP !
+! Next part avoids error from raising negative number to a power !
+ Coefficient (all,i,IND)(all,d,DST) DENOM(i,d) # Denominator in GRETEXP formula#;
+Formula     (all,i,IND)(all,d,DST) DENOM(i,d) = [GROMAX(i,d)/GROSSGRO(i,d)]-1.0;
+Formula     (all,d,DST)(all,i,IND: DENOM(i,d) le 0)   DENOM(i,d) = 0.001;
+Formula (all,i,IND)(all,d,DST) GRETEXP(i,d)=RNORMAL(i,d)*
+([QRATIO(i,d)-1.0]/DENOM(i,d))^[1.0/ALPHA(i,d)];
+
+Coefficient (parameter)(all,i,IND)(all,d,DST) GRETEXP0(i,d)
+ # Initial expected gross rate of return #;
+Formula (initial) (all,i,IND)(all,d,DST) GRETEXP0(i,d)=GRETEXP(i,d);
+
+Variable
+(all,i,IND)(all,d,DST) gretxp(i,d)# Percent change in expected rate of return #;
+(all,i,IND)(all,d,DST) mratio(i,d) # Ratio, (expected/normal) rate of return #;
+
+Equation E_mratio # Ratio,(expected/normal) rate of return #
+ (all,i,IND)(all,d,DST) mratio(i,d)=gretxp(i,d)-rnorm(i,d);
+
+Equation E_gretxp # Percent change in expected rate of return #
+ (all,i,IND)(all,d,DST) delgretexp(i,d)=0.01*GRETEXP(i,d)*gretxp(i,d);
+
+Coefficient (parameter)
+(all,i,IND)(all,d,DST) RORADJ(i,d) #ROR Partial adjustment parameter, eg 0.8#;
+Read RORADJ from file INFILE header "RADJ";
+
+Equation E_delgretexp # Partial adjustment of expected rate of return #
+ (all,i,IND)(all,d,DST) delgretexp(i,d)
+      = RORADJ(i,d)*[{GROSSRET0(i,d)-GRETEXP0(i,d)}*delUnity +delgret(i,d)];
+
+Coefficient (all,i,IND)(all,d,DST) MCOEFF(i,d) # Mratio coefficient #;
+Formula     (all,i,IND)(all,d,DST)
+   MCOEFF(i,d) = ALPHA(i,d)*[1.0-(GROSSGRO(i,d)/GROMAX(i,d))];
+
+Equation E_gro # Planned investment/capital ratio #
+ (all,i,IND)(all,d,DST) gro(i,d)=gtrend(i,d) + invslack
+! endogenous invslack if aggregate investment is exogenous !
+   + MCOEFF(i,d)*mratio(i,d);
+
+! Excerpt 52 of TABLO input file: !
+! Dynamic extension: summary tables for diagnostic purposes!
+Coefficient
+ (all,i,IND)(all,d,DST) VALRAT(i,d) # V1CAP/V2TOT#;
+ (all,i,IND)(all,d,DST) NETGRO(i,d) # Net capital growth rate #;
+ (all,i,IND)(all,d,DST) NETRET(i,d) # Net rate of return #;
+Formula
+ (all,i,IND)(all,d,DST) VALRAT(i,d) = CAP(i,d)/INVEST_C(i,d);
+ (all,i,IND)(all,d,DST) NETGRO(i,d) = GROSSGRO(i,d)-DPRC(i,d);
+ (all,i,IND)(all,d,DST) NETRET(i,d) = GROSSRET(i,d)-DPRC(i,d);
+Set CAPFACTS # Useful numbers for dynamic extension #
+   (CAPSTOK, V2TOT, V1CAP, CAPADD, RNORMAL, GRETEXP, QRATIO,
+    GROTREND, DPRC, VALRAT, GROSSGRO, NETGRO, GROSSRET, NETRET, MCOEFF);
+Coefficient (all,i,IND)(all,d,DST) (all,c,CAPFACTS) CAPFACT(i,d,c)
+       # Useful numbers for dynamic extension #;
+Formula
+ (all,i,IND)(all,d,DST) (all,c,CAPFACTS) CAPFACT(i,d,c)=0;
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"CAPSTOK")=CAPSTOK(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"V2TOT")=INVEST_C(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"V1CAP")=CAP(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"CAPADD")=CAPADD(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"RNORMAL")=100*RNORMAL(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"GRETEXP")=100*GRETEXP(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"QRATIO")=QRATIO(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"GROTREND")=100*GROTREND(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"DPRC")=100*DPRC(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"VALRAT")=100*VALRAT(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"GROSSGRO")=100*GROSSGRO(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"NETGRO")=100*NETGRO(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"GROSSRET")=100*GROSSRET(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"NETRET")=100*NETRET(i,d);
+ (all,i,IND)(all,d,DST) CAPFACT(i,d,"MCOEFF")=MCOEFF(i,d);
+Write CAPFACT to file SUMMARY header "CFAC";
+
+! Excerpt 53 of TABLO input file: !
+! Dynamic extension: national reporting variables !
+Coefficient (all,i,IND) CAPSTOK_D(i) # National cap stocks #;
+Formula     (all,i,IND) CAPSTOK_D(i) =  sum{d,DST, CAPSTOK(i,d)};
+Variable    (all,i,IND) natcapstok(i) # National cap stocks #;
+Equation
+E_natcapstok (all,i,IND)
+  ID01[CAPSTOK_D(i)]*natcapstok(i) = sum{d,DST,CAPSTOK(i,d)*xcap(i,d)};
+Backsolve natcapstok using E_natcapstok;
+
+Coefficient (all,i,IND) INVEST_CD(i) # National industry investment #;
+Formula (all,i,IND) INVEST_CD(i) = sum{d,DST, INVEST_C(i,d)};
+
+Variable (all,i,IND) natxinvitot(i) # National industry investment #;
+Equation E_natxinvitot (all,i,IND)
+ ID01[INVEST_CD(i)]*natxinvitot(i) = sum{d,DST,INVEST_C(i,d)*xinvitot(i,d)};
+Backsolve natxinvitot using E_natxinvitot;
+
+Variable    (all,i,IND) natpinvitot(i) # National price, new capital #;
+Equation E_natpinvitot (all,i,IND)
+  ID01[INVEST_CD(i)]*natpinvitot(i) = sum{d,DST,INVEST_C(i,d)*pinvitot(i,d)};
+Backsolve natpinvitot using E_natpinvitot;
+
+Variable (all,i,IND) natggro(i) # National gross growth rate of capital #;
+Equation E_natggro (all,i,IND)
+  natggro(i) = natxinvitot(i) - natcapstok(i);
+Backsolve natggro using E_natggro;
+
+! Excerpt 54 of TABLO input file: !
+! Dynamic extension: real wage adjustment mechanism !
+Variable (all,o,OCC) emptrend(o) # Trend employment #;
+Variable (change) (all,o,OCC)
+ delempratio(o) # Ordinary change in (actual/trend) employment #;
+Coefficient (all,o,OCC)
+ EMPRAT(o) # (Actual/trend) employment: in steady state should trend to 1 #;
+Read EMPRAT from file INFILE header "EMPN";
+Update (change) (all,o,OCC) EMPRAT(o)=delempratio(o);
+Coefficient
+ (parameter) (all,o,OCC) EMPRAT0(o) # Initial (actual/trend) employment #;
+Formula (initial) (all,o,OCC) EMPRAT0(o)=EMPRAT(o);
+Equation E_delempratio # Ordinary change in (actual/trend) employment #
+(all,o,OCC)  delempratio(o)=0.01*EMPRAT(o)*[xlab_id(o)-emptrend(o)];
+
+Variable (change) (all,o,OCC) delwagerate(o) # Change in real wage index #;
+Coefficient (all,o,OCC) WAGERATE(o) # Index of real wages #;
+Formula (initial) (all,o,OCC) WAGERATE(o)=1.0; !index is rebased each period!
+Update (change) (all,o,OCC) WAGERATE(o)=delwagerate(o);
+Equation E_delwagerate # Change in real wage index #
+ (all,o,OCC)  delwagerate(o)=0.01*WAGERATE(o)*realwage_id(o);
+
+Coefficient (parameter)
+ (all,o,OCC) ELASTWAGE(o) # Elasticity of wage to employment:i.e. 0.5 #;
+ (all,o,OCC) LABMOMENTUM(o) # Labour momentum term #;
+Read ELASTWAGE from file INFILE header "ELWN";
+Formula   (all,o,OCC) LABMOMENTUM(o) = ELASTWAGE(o)*[EMPRAT0(o)-1.0];
+
+Variable
+(change) (all,o,OCC) delfwage(o) # Shifter for real wage adjustment mechanism #;
+(change)             delfwage_o  # Shifter for real wage adjustment mechanism #;
+Equation E_delfwage # Real wage adjustment mechanism #
+  (all,o,OCC)  delwagerate(o) = delfwage(o) + delfwage_o +
+            ELASTWAGE(o)*{[EMPRAT0(o)-1.0]*delUnity+delempratio(o)};
+
+Write EMPRAT to file SUMMARY header "EMPN";
+Write LABMOMENTUM to file SUMMARY header "LMOM";
+
+!To use, set delfwage exogenous and shock emptrend by labour force growth
+rate. Both the real wage and employment are endogenous. The final equation
+then works an upward sloping labour supply schedule, which continually
+moves to the right (up) as long as actual employment exceeds trend.
+ To switch off, set delfwage endogenous and exogenize either the real wage
+or employment.!
+
+! Excerpt 55 of TABLO input file: !
+! Top-down district extension for TERM-style model !
+
+!Some (maybe not all) of the REG are divided into districts [Set RGN].
+Each RGN is part of one REG, and it is assumed that
+ a group of RGN comprise the whole of the corresponding REG. The top-down
+ extension is similar to the ORANI ORES extension, and has the same division
+ between "local" and "national" industries, here named "municipal" and
+ "regional" industries.
+ We assume that "regional" industries grow at the same
+ rate in each municipality within a common region, while local industries 
+ follow growth in "local [RGN] demand" for their product.
+However, only the household (and potentially the government) part
+of "local demand" differs by municipality. Thus the local multiplier effect is
+less strong than in ORES. That is because for Australia some of the
+municipalities are quite small -- perhaps a single suburb. Demand from such tiny
+regions will rarely be satisfied mostly locally.
+
+It is expected that as much regional detail as possible will be satisfied at the 
+bottom-up level, to keep top-down sub-regions small.
+
+For Australia, the RGN will likely correspond to SLA (statistical local areas); 
+elsewhere they may have another common name (eg, prefecture). 
+
+In the code below, RGNX is the full set of Municipalities; to save time we
+compute results only for a subset of these, RGN.
+This is controlled by the parameter SPLITREG, size REG.
+Results are only computed for those municipalities
+ within a region r for which: SPLITREG(r)>0
+
+A good deal of the complication at the start of the code below
+arises from the need to cope with aggregation: the Australian TERM has 56
+regions and 170 sectors; it must be aggregated before running. The data for
+subregions, and mapping from subregions to regions, has to survive the
+aggregation and still work. It would be simpler if the regions and sectors
+did not change.
+
+DATA NEEDED:
+
+Set RGNX # Full list of Municipality/districts # header "RGN";
+Coefficient (all,z,RGNX)(all,r,REG) RGNMAP(z,r)
+   # RGN to REG mapping matrix; >0 iff z is in r #  header "MRGN";
+Coefficient (all,r,REG) SPLITREG(r)
+   # Flag to split into Sub-regions iff >0# header "SREG";
+Coefficient (all,i,IND) LOCPRIM(i)
+ # flag: for local industries, shows national value-added; 0 for non-local #
+ header "LOCI";
+!! the following are the only regional "shares" needed. Note that they need not 
+add to the corresponding numbers in the main database !! 
+Coefficient (all,i,IND)(all,z,RGNX) RGNVTOT(i,z) # District outputs or Val-Add #
+ header "MVTO";
+!
+
+! Decide which bottom up regions to split [set RGNREG]
+       and the sub-regions which are part of these [set RGN] !
+Set RGNX # Full list of Municipality/districts#
+read elements from file INFILE header "RGN";
+! Set RGN (below) is the set for which we actually calculate results !
+
+! Mapping from RGNX to REG is stored as a matrix:
+    this allows for REG or RGNX aggregation. !
+Coefficient (parameter)(all,z,RGNX)(all,r,REG) RGNMAP(z,r)
+ # RGN to REG mapping matrix; >0 iff z is in r #;
+Read RGNMAP from file INFILE header "MRGN";
+! turn RGNMAP into a [0,1] binary dummy !
+Formula (initial) (all,z,RGNX)(all,r,REG) RGNMAP(z,r)= if [RGNMAP(z,r)>0,1];
+Write  RGNMAP to file SUMMARY header "MRGN";
+Assertion # Each RGN belongs to 1 REG # (all,z,RGNX) sum{r,REG, RGNMAP(z,r)}=1;
+! above might fail if you merged two RGN in different REG !
+
+! Deduce a conventional mapping RGNX2REG from RGNMAP !
+Mapping (onto) RGNX2REG from RGNX to REG;
+Formula (all,z,RGNX) RGNX2REG(z) = sum{r,REG:RGNMAP(z,r)>0.0, $pos(r)};
+Write (by_elements) RGNX2REG to file SUMMARY header "M2RG";
+
+Coefficient (parameter)(all,r,REG) SPLITREG(r) # Flag to split into SLA iff >0#;
+Read SPLITREG from file INFILE header "SREG";
+Write SPLITREG to file SUMMARY header "SREG";
+Coefficient (parameter)(all,r,REG) NRGN(r) # No of districts in region #;
+Formula (initial) (all,r,REG) NRGN(r) = sum{z,RGNX,RGNMAP(z,r)};
+
+Set RGNREG # Bottom-up Regions to split #
+   = (all,r,REG:[NRGN(r)>0] and [SPLITREG(r)>0]);
+Write (Set) RGNREG to file SUMMARY header "MREG";
+
+Set RGN # Districts in RGNREG # = (all,m,RGNX:SPLITREG(RGNX2REG(m))>0);
+! the districts for which we actually calculate results !
+Write (Set) RGN to file SUMMARY header "RGN";
+
+Mapping (onto) RGN2REG from RGN to RGNREG;
+Formula (by_elements) (all,z,RGN) RGN2REG(z) = RGNX2REG(z);
+
+Coefficient (all,i,IND) LOCPRIM(i)
+# Flag: for local industries, shows national value-added; 0 for non-local #;
+Update (all,i,IND) LOCPRIM(i) = natwprim(i);
+Read LOCPRIM from file INFILE header "LOCI";
+Set
+ LOCIND # Industries where output tends to follow local demand #
+           = (all,i,IND: LOCPRIM(i)>0.5*PRIM_D(i));
+Write (Set) LOCIND  to file SUMMARY header "LIND";
+
+! We require that the LOCIND are mainly single product industries !
+Subset LOCIND is subset of COM;
+Assertion (all,i,LOCIND)(all,d,DST) MAKE(i,i,d)>0.9*MAKE_C(i,d);
+Assertion (all,c,LOCIND)(all,d,DST) MAKE(c,c,d)>0.9*MAKE_I(c,d);
+
+Set REGIND  # Industries where output follows DST demand #= IND - LOCIND;
+    LOCMAR  # Local margins # = MAR intersect LOCIND;
+    OTHLOC  # Local non-margins # = LOCIND - LOCMAR;
+Write
+ (Set) REGIND  to file SUMMARY header "RIND";
+ (Set) LOCMAR  to file SUMMARY header "LMAR";
+
+Coefficient (all,i,IND)(all,z,RGNX) RGNVTOT(i,z) # District outputs or Val-Add#;
+Read RGNVTOT from file INFILE header "MVTO";
+
+! Scale the RGNVTOT to add to corresponding VTOT!
+Coefficient (all,i,IND)(all,r,RGNREG)
+  RGNREGVTOT(i,r) # Summed district outputs #;
+Formula (all,i,IND)(all,r,RGNREG)
+  RGNREGVTOT(i,r) = sum{k,RGN:(RGN2REG(k)=r), RGNVTOT(i,k)};
+Formula (initial) (all,i,IND)(all,z,RGN)
+  RGNVTOT(i,z) = RGNVTOT(i,z)*VTOT(i,RGN2REG(z))/ID01[RGNREGVTOT(i,RGN2REG(z))];
+Formula (all,i,IND)(all,r,RGNREG)
+  RGNREGVTOT(i,r) = sum{k,RGN:(RGN2REG(k)=r), RGNVTOT(i,k)};
+
+Variable  (all,i,IND)(all,z,RGN) munxtot(i,z) # Top-down district output #;
+Update (all,i,IND)(all,z,RGN) RGNVTOT(i,z) = munxtot(i,z)*ptot(i,RGN2REG(z));
+
+Coefficient (all,z,RGN) DEFRGNSHR(z) # District default shares #;
+Formula     (all,z,RGN) DEFRGNSHR(z) = 1/NRGN(RGN2REG(z));
+
+Coefficient (all,i,IND)(all,z,RGN) RGNINDSHR(i,z) # District industry shares #;
+Formula     (all,i,IND)(all,z,RGN) RGNINDSHR(i,z) = DEFRGNSHR(z);
+Formula     (all,i,IND)(all,z,RGN:RGNREGVTOT(i,RGN2REG(z))>0)
+      RGNINDSHR(i,z) = RGNVTOT(i,z)/RGNREGVTOT(i,RGN2REG(z));
+Write RGNINDSHR to file SUMMARY header "MUIS";
+
+Variable (all,i,LOCIND)(all,z,RGN) munxtotshr(i,z) # District output share #;
+Equation E_munxtotshr  (all,i,LOCIND)(all,z,RGN)
+  munxtotshr(i,z) = munxtot(i,z) - xtot(i,RGN2REG(z));
+Backsolve munxtotshr using E_munxtotshr;
+
+Coefficient
+(all,i,IND)(all,z,RGN) RGNLAB_O(i,z) # District wages by ind #;
+           (all,z,RGN) RGNLAB_IO(z)  # Total district wages #;
+Formula
+(all,i,IND)(all,z,RGN) RGNLAB_O(i,z) = RGNINDSHR(i,z)*LAB_O(i,RGN2REG(z));
+           (all,z,RGN) RGNLAB_IO(z)  = sum{i,IND, RGNLAB_O(i,z)};
+
+Variable
+ (all,z,RGN) munwages(z) # Top-down district wage bill #;
+Equation E_munwages # Aggregate district wage bill #
+ (all,z,RGN) RGNLAB_IO(z)*munwages(z) =
+  sum{i,IND, RGNLAB_O(i,z)*wlab_o(i,RGN2REG(z))}
+ +sum{i,LOCIND, RGNLAB_O(i,z)*munxtotshr(i,z)};
+
+Variable
+ (all,z,RGN) munemploy(z) # Top-down district employment #;
+Equation E_munemploy # Aggregate district employment #
+ (all,z,RGN)    RGNLAB_IO(z)*munemploy(z) =
+  sum{i,IND,    RGNLAB_O(i,z)*xlab_o(i,RGN2REG(z))}
+ +sum{i,LOCIND, RGNLAB_O(i,z)*munxtotshr(i,z)};
+Backsolve munemploy using E_munemploy;
+
+Coefficient (all,i,IND)(all,z,RGN) RGNPRIM(i,z) # District value-added #;
+Formula (all,i,IND)(all,z,RGN) RGNPRIM(i,z) =RGNINDSHR(i,z)*PRIM(i,RGN2REG(z));
+
+Coefficient (all,z,RGN) RGNPRIM_I(z) # District value-added #;
+Formula     (all,z,RGN) RGNPRIM_I(z) = sum{i,IND, RGNPRIM(i,z)};
+
+Coefficient (all,i,IND)(all,z,RGN) RGNPRIMSHR(i,z) # RGNPRIM(i,z)/RGNPRIM_I(z)#;
+Formula (all,i,IND)(all,z,RGN) RGNPRIMSHR(i,z) =RGNPRIM(i,z)/ID01[RGNPRIM_I(z)];
+
+Variable
+ (all,z,RGN) munwprim_i(z) # Top-down district value-added #;
+Equation E_munwprim_i # Aggregate district value-added #
+ (all,z,RGN) munwprim_i(z) =
+ sum{i,IND,     RGNPRIMSHR(i,z)*wprim(i,RGN2REG(z))}
++sum{i,LOCIND, RGNPRIMSHR(i,z)*munxtotshr(i,z)};
+Backsolve munwprim_i using E_munwprim_i;
+
+Variable
+ (all,z,RGN) munxprim_i(z) # Top-down real district GDP at factor cost #;
+Equation E_munxprim_i # Real district GDP at factor cost #
+ (all,z,RGN) munxprim_i(z) =
+  sum{i,IND, RGNPRIMSHR(i,z)*xtot(i,RGN2REG(z))}
+ +sum{i,LOCIND, RGNPRIMSHR(i,z)*munxtotshr(i,z)};
+Backsolve munxprim_i using E_munxprim_i;
+
+Variable
+ (all,z,RGN) munxhoutot(z) # Top-down district household consumption #;
+ (all,z,RGN) munxgovtot(z) # Aggregate district gov consumption #;
+Equation E_munxhoutot # Aggregate district household consumption #
+(all,z,RGN)
+ munxhoutot(z) = xhoutot(RGN2REG(z)) + munwages(z) - wlab_io(RGN2REG(z));
+Equation E_munxgovtot # Aggregate district gov consumption #
+(all,z,RGN) munxgovtot(z) = xfin("Gov",RGN2REG(z)); ! so no Gov multiplier !
+! + munxhoutot(z)- xhoutot(RGN2REG(z)); possible alternative !
+Backsolve munxhoutot using E_munxhoutot;
+
+! For each com in LOCIND we need to know
+Household, Government, and Total demand
+for both direct and margin dom use !
+Set HG  (HOU,GOV);
+Subset HG is subset of USR;
+
+! we attempt to estimate how much of the margins are for hou and gov !
+Coefficient
+ (all,m,LOCMAR)(all,u,HG)(all,d,DST) MUSE(m,u,d) # Attributed margin use #;
+Formula
+ (all,m,LOCMAR)(all,u,HG)(all,d,DST) MUSE(m,u,d) = sum{c,COM,sum{s,SRC,
+      TRADMAR_R(c,s,m,d)*USE(c,s,u,d)/ID01[USE_U(c,s,d)]}};
+
+Coefficient
+ (all,c,LOCIND)(all,u,HG)(all,d,DST) AUSE(c,u,d) # Direct + margin use #;
+Formula
+ (all,c,LOCIND)(all,u,HG)(all,d,DST) AUSE(c,u,d) = USE(c,"dom",u,d);
+ (all,m,LOCMAR)(all,u,HG)(all,d,DST) AUSE(m,u,d) = AUSE(m,u,d) + MUSE(m,u,d);
+Coefficient
+ (all,c,LOCIND)(all,d,DST) TUSE(c,d) #  All-user direct + margin use #;
+Formula
+ (all,c,LOCIND)(all,d,DST) TUSE(c,d) = USE_U(c,"dom",d);
+ (all,m,LOCMAR)(all,d,DST) TUSE(m,d) = TUSE(m,d)
+     + sum{c,COM,sum{s,SRC, TRADMAR_R(c,s,m,d)}};
+! We are implicitly assuming that most of the LOCMAR needed locally are locally
+  produced. Reasonable for RetailTrade, Repairs, Cafes -- but not for
+  transport margins. !
+
+Coefficient
+ (all,c,LOCIND)(all,u,HG)(all,d,DST) SHRHG(c,u,d) # HG share of all use #;
+Formula
+ (all,c,LOCIND)(all,u,HG)(all,d,DST) SHRHG(c,u,d) = AUSE(c,u,d)/ID01[TUSE(c,d)];
+Write SHRHG to file SUMMARY header "SRHG";
+
+Coefficient (all,u,HG)(all,z,RGN) MULTSHR(u,z)
+  # Share district value-added that is multiplied #;
+Formula     (all,u,HG)(all,z,RGN) MULTSHR(u,z) =
+   sum{c,LOCIND, SHRHG(c,u,RGN2REG(z))*RGNPRIM(c,z)}/RGNPRIM_I(z);
+Write MULTSHR to file SUMMARY header "MUSH";
+
+Variable
+ (all,c,LOCIND)(all,z,RGN) munxcom(c,z)  # District direct+margin dom demand #;
+ (all,c,LOCIND)(all,r,RGNREG) muncomslack(c,r) # District dom demand slack #;
+Equation
+ E_munxcom (all,c,LOCIND)(all,z,RGN)
+   munxcom(c,z) = xcom(c,RGN2REG(z))
+! if you commented out the next 2 lines, there would be no multiplier !
+     + SHRHG(c,"hou",RGN2REG(z))*[munxhoutot(z) - xhoutot(RGN2REG(z))]
+     + SHRHG(c,"gov",RGN2REG(z))*[munxgovtot(z) - xfin("Gov",RGN2REG(z))]
+     + muncomslack(c,RGN2REG(z)); ! slack to satisfy regional addup constraint !
+ E_muncomslack # Regional addup constraint # (all,c,LOCIND)(all,r,RGNREG)
+   xcom(c,r) = sum{z,RGN:RGN2REG(z)=r,RGNINDSHR(c,z)*munxcom(c,z)};
+
+Backsolve munxcom using E_munxcom;
+
+Coefficient
+ (all,i,IND) ISREGIND(i) # Binary Dummy #;
+ (all,i,IND) ISLOCIND(i) # Binary Dummy #;
+Formula
+ (all,i,IND) ISREGIND(i) = if (i in REGIND,1);
+ (all,i,IND) ISLOCIND(i) = if (i in LOCIND,1);
+Mapping IND2LOC from IND to LOCIND;
+Formula
+(all,i,IND) IND2LOC(i) = 1;
+(all,i,LOCIND) IND2LOC(i) = i;
+
+Equation E_munxtot # Output of regional industries eq39.2, DPSV P.260 #
+(all,i,IND)(all,z,RGN) munxtot(i,z) = ISREGIND(i)*xtot(i,RGN2REG(z))
+                                    + ISLOCIND(i)*munxcom(IND2LOC(i),z);
+Backsolve munxtot using E_munxtot;
+
+Variable (all,i,IND)(all,r,RGNREG) munavextot(i,r) # Average, District xtot #;
+Equation E_munavextot
+ (all,i,IND)(all,r,RGNREG)
+ munavextot(i,r) = sum{z,RGN:RGN2REG(z)=r,RGNINDSHR(i,z)*munxtot(i,z)};
+Backsolve munavextot using E_munavextot;
+
+! checksum for munxtot !
+Variable (all,i,LOCIND)(all,r,RGNREG) munerrxtot(i,r)
+  # Sum-error, District xtot; should be tiny #;
+Equation E_munerrxtot
+ (all,i,LOCIND)(all,r,RGNREG)
+ munerrxtot(i,r) = xtot(i,r) - munavextot(i,r);
+ Backsolve munerrxtot using E_munerrxtot;
+
+!Weight for variable aggregation of results!
+Write RGNVTOT to file SUMMARY header "MVTO" longname "District outputs";
+

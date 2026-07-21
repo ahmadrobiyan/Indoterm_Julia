@@ -1,0 +1,17 @@
+auxiliary files = trdras;
+File INFILE = reg2.HAR;
+File DIAG = dgtrdras.har;
+updated File INFILE = trdras.HAR;
+log file = yes ; 
+check-on-read all = no ;
+verbal description =trdras;
+scale equations = yes; 
+!method = johansen;
+  method = euler; steps=100;
+!structurally singular solve modified equations = yes ; 
+Exogenous     Unity ;  
+rest endogenous;
+shock     Unity =1;   
+
+
+

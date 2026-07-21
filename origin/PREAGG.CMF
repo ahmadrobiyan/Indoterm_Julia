@@ -1,0 +1,12 @@
+auxiliary files = preagg;
+log file = yes ; 
+set elements read style = flexible ;
+File WEIGHTS = weights.har; ! weights for parameter aggregation: from PREMOD
+File BIGSETS = orgsets.har; ! original disaggregated sets: from PREMOD
+File SECAGG  = sec.agg; !com22.agg;    ! sector aggregation instructions: prepared by user
+File REGAGG  = reg.agg; ! reg57.agg;    ! region aggregation instructions: prepared by user
+File OUTFILE = aggsupp.har; ! AGGSUPP file for AGGHAR program
+File MAPAGG  = mapagg.har; ! output file containing data needed to produce map
+check-on-read all = no ;
+
+

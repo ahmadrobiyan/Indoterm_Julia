@@ -1,0 +1,18 @@
+! This Command file
+! C:\id13\regdata\sim1ps.cmf
+! was written by RunGEM (Version 2.67 built 30/Jul/2013)
+!
+! Auxiliary files (i.e., which model)
+! ---------------
+!
+Auxiliary files = C:\id13\regdata\term ;
+!
+! Input and output files
+! ----------------------
+!
+File INFILE = C:\id13\regdata\sim1.upd ;
+File REGSETS = C:\id13\regdata\AGGSETS.HAR ; !  Sets file
+File SUMMARY = C:\id13\regdata\sim1ps.ou1 ;
+! No equations - hence no simulation
+neq = yes ;
+dpn = yes ;
