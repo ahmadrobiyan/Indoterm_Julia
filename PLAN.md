@@ -595,3 +595,70 @@ called `num_constraints(m, F, S; count_variable_in_set_constraints=false)` per c
 but that keyword isn't accepted by that method signature in JuMP 1.30.1 — only the no-argument
 `num_constraints(m; count_variable_in_set_constraints=false)` form supports it. Not a translation
 bug, just a test-script API mismatch; fixed by switching to the simpler call.
+
+**Step 5b prep — Exogenous-list cross-check found and fixed a real equation gap
+(`srctwist`/`avesrctwist`).** Before writing `initialize_model!.jl`, cross-checked `TERM.CMF`'s
+default-closure `Exogenous` block (48 names, lines 21-68) against all 169 JuMP variable names
+declared in `build_model!.jl`. This is a deeper check than the Excerpt 49 cross-check above — that
+one only verified every `Substitute`/`Backsolve` *equation name* has a corresponding `E_*!`
+function; this one checks that every variable a closure or equation actually *needs* is modeled at
+all. 7 of the 48 names came up unmatched. Traced each by grepping `TERM.TAB` for the name and
+checking which `! Excerpt N of TABLO input file: !` marker it falls under: `delfwage_o` (line
+2906), `delUnity` (2696), `emptrend` (2878), `frnorm`/`frnorm_id` (2724-2725), and `gtrend` (2732)
+all land inside Excerpts 50-54 (2664-2920) — confirmed Step 6 dynamic scope (investment rule,
+real-wage adjustment), correctly out of Step 5. `srctwist` did not — it traced to Excerpt 20 (line
+986), core scope.
+
+Read `TERM.TAB` lines 960-1005 to understand why: it contains *two* candidate `E_xtrad`
+formulations back to back, which looks like a duplicate-declaration problem until you track TABLO's
+`!...!` comment delimiters character-by-character rather than line-by-line. The first formulation
+(lines 992-996) uses `srctwist(c,s,r,d)`/`avesrctwist(c,s,d)` (declared as `Variable`s at 985-987,
+with their own defining equation `E_avesrctwist` at 988-990) and the `SIGMADOMDOM(c)` CES
+elasticity, ending in the real `Substitute xtrad using E_xtrad;` directive — this is live, compiled
+code. The second formulation (lines 998-1005, introducing a `twistsrc(i,s,k)` variable instead)
+looked equally live at a glance, but line 998 opens a TABLO comment (`! alternative form with
+"twists":`) with no closing `!` on that line — the comment doesn't actually close until the lone
+trailing `!` at the very end of line 1005. Everything in between, including the `twistsrc` variable
+declaration and the second `Equation E_xtrad`, is dead documentation that was never compiled. So the
+first formulation is unambiguously canonical.
+
+Compared against it, `build_equations.jl`'s `E_xtrad!` (`xtrad-atrad == xuse-(pdelivrd+atrad-puse)`)
+was missing three things: the `srctwist`/`avesrctwist` shift terms (and `E_avesrctwist` didn't exist
+at all — neither variable was referenced anywhere in the Julia code); and the `SIGMADOMDOM(c)`
+elasticity coefficient, implicitly using 1.0 in its place. The elasticity's aggregated value
+(`SGDD`) turned out to already be computed correctly by `build_premod!.jl`/`aggregate_model!.jl` and
+read into a local `SGDD` binding at `prepare_parameters.jl:26` — but, like the `P021` and `2PUR`
+bugs earlier this session, never added to that function's output dict, so `params["SGDD"]` didn't
+exist. This class of bug (data computed correctly upstream, silently dropped by a missing dict-key
+write, masked by a downstream `haskey`/`!== nothing` guard) has now recurred three times
+(`P021`/FRISCH, `2PUR`/investment, `SGDD`/SIGMADOMDOM) — worth treating as a standing suspicion
+whenever a parameter that should obviously matter seems to have no effect. Grepping for the same
+pattern turned up **five more instances**: `SLAB`, `P028`, `SMAR`, `PO01`, `SCET`, `P018` are all
+read into local bindings in `prepare_parameters.jl` (lines 24-38) and never written to its output
+dict either — confirmed dead by grep (each name appears exactly once in the file, at its own
+declaration). `build_model!.jl` silently compensates with hardcoded placeholder elasticities
+(`sigmalab`/`sigmaprim`/`sigmaout` all `fill(0.5, na)`, `sigmadomimp = fill(5.0, na)`) instead of the
+real, data-derived values. Logged as a follow-up in TODO.md's "Smaller loose ends" section (folded
+into the pre-existing `P015`/`ARMSIGMA` item, since it's the same fix shape) — lower urgency than
+`srctwist` because it changes solved *magnitudes* on a real shock, not the variable/constraint
+*count*, so it won't be caught by the benchmark-replication (all-zero-shock) test.
+
+Fixed the confirmed gap: added `p["SGDD"] = SGDD` to `prepare_parameters.jl`; added
+`srctwist[1:na,1:ns,1:nr,1:nr]` and `avesrctwist[1:na,1:ns,1:nr]` `@variable`s to `build_model!.jl`;
+added `E_avesrctwist!` to `build_equations.jl` (mirrors `E_puse!`'s
+`DELIVRD_R[c,s,d] * lhs == sum_r(DELIVRD[c,s,r,d] * rhs)` pattern, i.e. TABLO's `ID01(x)*lhs = ...`
+convention is just `x` used directly as the coefficient); rewrote `E_xtrad!` to include the
+`srctwist`/`avesrctwist` terms and the `SGDD[c]` coefficient. `srctwist` itself is left with no
+defining equation on purpose — `TERM.CMF` lists it `Exogenous` in the base closure, so it's meant to
+be fixed (at 0, for a no-shock benchmark) by Step 5b's `initialize_model!.jl`, exactly like any other
+closure-exogenous variable; `avesrctwist` is fully determined by `E_avesrctwist` given `srctwist`.
+
+Verified with a full pipeline + full model build re-run (after also killing a stale julia.exe from
+an earlier background run in this session that was still resident at ~1.3GB on this 7.8GB-RAM
+machine and had caused a transient `OutOfMemoryError` on the first retry attempt — unrelated to the
+code change, confirmed by the crash site being an unrelated pre-existing variable declaration
+several lines away from anything just edited). Second attempt succeeded: **61.6s build time,
+2,436,062 variables (+59,500 = 25×2×34×34 + 25×2×34, exactly the new `srctwist`+`avesrctwist`
+sizes), 1,370,212 constraints (+1,700 = 25×2×34, i.e. every `E_avesrctwist` instance active, none
+skipped by the `DELIVRD_R > 0` guard), 171 `vars` dict entries (+2)** — matches hand-calculated
+expectations exactly, confirming the fix is wired correctly end to end.

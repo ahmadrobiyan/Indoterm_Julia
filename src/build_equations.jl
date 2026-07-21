@@ -567,11 +567,24 @@ function E_puse!(m, vars, na, nr, ns, params)
     end
 end
 
-function E_xtrad!(m, vars, na, nr, ns)
+function E_avesrctwist!(m, vars, na, nr, ns, params)
+    avesrctwist = vars["avesrctwist"]; srctwist = vars["srctwist"]
+    DELIVRD = parent(params["DELIVRD"]); DELIVRD_R = parent(params["DELIVRD_R"])
+    for c in 1:na, s in 1:ns, d in 1:nr
+        DELIVRD_R[c,s,d] > 1e-10 || continue
+        rhs = sum(DELIVRD[c,s,r,d] * srctwist[c,s,r,d] for r in 1:nr)
+        @constraint(m, DELIVRD_R[c,s,d] * avesrctwist[c,s,d] == rhs)
+    end
+end
+
+function E_xtrad!(m, vars, na, nr, ns, params)
     xtrad = vars["xtrad"]; xuse = vars["xuse"]
     pdelivrd = vars["pdelivrd"]; puse = vars["puse"]; atrad = vars["atrad"]
+    srctwist = vars["srctwist"]; avesrctwist = vars["avesrctwist"]
+    SGDD = parent(params["SGDD"])  # SIGMADOMDOM(c) — CES elasticity of substitution across regional sources
     @constraint(m, [c=1:na, s=1:ns, r=1:nr, d=1:nr],
-        xtrad[c,s,r,d] - atrad[c,s,r,d] == xuse[c,s,d] - (pdelivrd[c,s,r,d] + atrad[c,s,r,d] - puse[c,s,d]))
+        xtrad[c,s,r,d] - atrad[c,s,r,d] == xuse[c,s,d] + srctwist[c,s,r,d] - avesrctwist[c,s,d]
+            - SGDD[c] * (pdelivrd[c,s,r,d] + atrad[c,s,r,d] - puse[c,s,d]))
 end
 
 # ═══════════════════════════════════════════════════════════════════════════

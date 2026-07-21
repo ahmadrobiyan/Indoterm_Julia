@@ -142,6 +142,7 @@ function prepare_parameters!(agg::Dict{String,Any})
         DELIVRD_R[c,s,d] = sum(DELIVRD[c,s,r,d] for r in 1:nr)
     end
     p["DELIVRD_R"] = DELIVRD_R
+    p["SGDD"] = SGDD
 
     # ── Margin aggregates (Excerpt 21) ─────────────────────────
     TRADMAR_CS = zeros(T, nm, nr, nr)

@@ -163,6 +163,8 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     @variable(m, atrad[1:na, 1:ns, 1:nr, 1:nr])
     @variable(m, atradmar[1:na, 1:ns, 1:nm, 1:nr, 1:nr])
     @variable(m, asuppmar[1:nm, 1:nr, 1:nr, 1:nr])
+    @variable(m, srctwist[1:na, 1:ns, 1:nr, 1:nr])
+    @variable(m, avesrctwist[1:na, 1:ns, 1:nr])
 
     # Household (Excerpt 13) — single representative household (h=1)
     @variable(m, nhou[1:nr])
@@ -314,6 +316,7 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
         ("xsuppmar_p", xsuppmar_p), ("psuppmar_p", psuppmar_p),
         ("xsuppmar_d", xsuppmar_d), ("xsuppmar_rd", xsuppmar_rd),
         ("atrad", atrad), ("atradmar", atradmar), ("asuppmar", asuppmar),
+        ("srctwist", srctwist), ("avesrctwist", avesrctwist),
         ("nhou", nhou), ("xhoutot", xhoutot), ("phoutot", phoutot),
         ("xhouhtot", xhouhtot), ("phouhtot", phouhtot), ("whouhtot", whouhtot),
         ("xlux", xlux), ("xsub", xsub), ("wlux", wlux),
@@ -469,7 +472,8 @@ function build_model_full!(agg, params)
 
     # ── Excerpt 20: Regional sourcing ────────────────────────────
     E_puse!(m, vars, na, nr, ns, params)
-    E_xtrad!(m, vars, na, nr, ns)
+    E_avesrctwist!(m, vars, na, nr, ns, params)
+    E_xtrad!(m, vars, na, nr, ns, params)
 
     # ── Excerpt 21: Margin supply ────────────────────────────────
     E_xsuppmar_p!(m, vars, na, nr, ns, nm, params)

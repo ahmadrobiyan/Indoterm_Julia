@@ -39,10 +39,58 @@
       entries.** The ~1.01M vars-minus-constraints gap is expected at this stage (not a bug): GEMPACK
       CGE closures always have more variables than core equations, with the closure (Step 5b) fixing
       exactly that many variables exogenously to square the system — this hasn't been wired yet.
-- [ ] Audit variable/equation coverage: `build_model!.jl` declares ~168 variable arrays; confirm
-      every variable either has a defining equation in `build_equations.jl` or is intentionally left
-      for closure (exogenous fix). Gaps here will show up as an under-determined system at solve time
-      — better to catch them by inspection first.
+- [x] ~~Audit variable/equation coverage~~ — **done 2026-07-22 via the Exogenous-list cross-check
+      below; found and fixed one real gap (`srctwist`/`avesrctwist`).**
+- [x] ~~**Cross-check `TERM.CMF`'s default-closure `Exogenous` list (48 names) against the 169
+      declared JuMP variables.**~~ — **done 2026-07-22.** 7 names came up unmatched:
+      `delfwage_o, delUnity, emptrend, frnorm, frnorm_id, gtrend, srctwist`. Traced each by line
+      number against `TERM.TAB`'s own `! Excerpt N of TABLO input file: !` markers:
+      - `delfwage_o` (line 2906), `delUnity` (2696), `emptrend` (2878), `frnorm`/`frnorm_id`
+        (2724-2725), `gtrend` (2732) all fall inside Excerpts 50-54 (lines 2664-2920) — confirmed
+        Step 6 dynamic scope (investment rule / real-wage adjustment), correctly out of Step 5.
+      - `srctwist` — genuine gap, see below.
+- [x] ~~**Fix `E_xtrad!`: missing `srctwist`/`avesrctwist`/`SIGMADOMDOM` terms.**~~ — **done
+      2026-07-22.** `TERM.TAB` lines 985-1005 contain *two* candidate `E_xtrad` formulations back
+      to back. Read byte-by-byte for TABLO's `!...!` comment delimiters: the first (lines 992-996,
+      using `srctwist`/`avesrctwist`/`SIGMADOMDOM(c)`) is live code, closed by the real
+      `Substitute xtrad using E_xtrad;` directive. The second (lines 998-1005, the `twistsrc(i,s,k)`
+      "alternative form") is entirely inside one unclosed TABLO comment — it opens at line 998's
+      lone `!` and doesn't close until the `!` at the very end of line 1005 — so `twistsrc` and the
+      second `E_xtrad`/`Variable` declarations are dead documentation, never compiled. Confirms the
+      **first** formulation is canonical, and `build_equations.jl`'s old `E_xtrad!`
+      (`xtrad-atrad == xuse-(pdelivrd+atrad-puse)`) was missing three things: the `srctwist`/
+      `avesrctwist` regional-sourcing-preference shift terms (and their defining equation,
+      `E_avesrctwist`, was absent entirely — its variables aren't referenced anywhere else in the
+      Julia code), and the `SIGMADOMDOM(c)` CES elasticity coefficient (implicitly using 1.0
+      instead). The elasticity itself (`SGDD`, aggregated correctly in `build_premod!.jl`/
+      `aggregate_model!.jl`) was *already computed* by `prepare_parameters.jl:26` but never added to
+      its output dict — a silent drop of the same kind as the P021/2PUR bugs. **Fixed**: added
+      `p["SGDD"] = SGDD` to `prepare_parameters.jl`; added `srctwist[na,ns,nr,nr]` and
+      `avesrctwist[na,ns,nr]` `@variable`s to `build_model!.jl`; added `E_avesrctwist!` to
+      `build_equations.jl` (mirrors `E_puse!`'s `ID01(DELIVRD_R)*lhs = sum_r DELIVRD*rhs` pattern);
+      rewrote `E_xtrad!` to include all three missing terms. `srctwist` is left as a free variable
+      with no defining equation — correct, since `TERM.CMF` lists it `Exogenous` in the base closure
+      (to be fixed at 0 by Step 5b's `initialize_model!.jl`, same as any other closure-exogenous
+      variable). Re-ran full pipeline + full model build: **61.6s, 2,436,062 variables (+59,500 —
+      exactly `na*ns*nr*nr` + `na*ns*nr` = 57,800+1,700), 1,370,212 constraints (+1,700, all
+      `E_avesrctwist` instances active), 171 vars-dict entries (+2)** — matches hand-calculated
+      expectations exactly.
+- [ ] **Systemic issue found while fixing the above, not yet addressed**: `prepare_parameters.jl`
+      reads `SLAB, P028, SMAR (as SMAR_v), PO01, SCET, P018` from `agg` (lines 24-38) but — like
+      `SGDD` before the fix above — never adds any of them to its output dict `p`. They are
+      genuinely dead reads (grep confirms zero other uses of these five bindings anywhere in the
+      file). `build_model!.jl` compensates with hardcoded placeholder elasticities instead
+      (`sigmalab = fill(0.5, na)`, `sigmaprim = fill(0.5, na)`, `sigmaout = fill(0.5, na)`, and
+      `sigmadomimp = fill(5.0, na)` per the pre-existing `P015`/`ARMSIGMA` item below). This means
+      `E_xlab_o!`/`E_xprim!`/`E_xmake!` (or whichever equations these feed) are running on
+      placeholder elasticities even though the real, data-derived values (`SLAB`=labour CES,
+      `P028`=primary-factor CES, `SCET`=CET output transformation) are computed correctly upstream
+      and simply never wired in. Lower priority than `srctwist` was (this doesn't change the
+      variable/constraint *count*, only solved magnitudes on a real shock — benchmark replication
+      with all-zero shocks won't catch it either), but should be fixed before trusting shock
+      magnitudes. Same root-cause pattern each time: fix by adding `p["SLAB"]=SLAB` etc. to
+      `prepare_parameters.jl` and threading them into `build_model!.jl` in place of the hardcoded
+      fills — bundle with the `P015`/`ARMSIGMA` fix below since it's the same fix shape.
 - [x] ~~Check whether Excerpts 30–48 are needed for a basic square closure~~ — **read directly,
       2026-07-22: they are not.** Excerpts 30–37 and 40–48 are entirely regional→national
       aggregation, contribution/decomposition reporting (`MainMacro`, `NatMacro`, Keller
@@ -112,5 +160,9 @@
       DOMERR/IMPERR discrepancies. Not urgent — data-quality refinement, not a blocker.
 - [ ] Add `P015` (`ARMSIGMA`, the Armington elasticity) to `build_premod!` output — currently read
       but not stored; `build_model!.jl` currently hardcodes `sigmadomimp = fill(5.0, na)` instead.
+      **Same bug now confirmed for 5 siblings** (see Step 5 section above,
+      2026-07-22): `SLAB, P028, SMAR, PO01, SCET, P018` are all read into local bindings in
+      `prepare_parameters.jl` and then never added to its output dict, so `build_model!.jl` falls
+      back to hardcoded placeholder elasticities for all of them. Fix all six in one pass.
 - [ ] Once `HeaderArrayFile.jl` is confirmed unused elsewhere, drop it from `Project.toml` (currently
       kept only because Step 1 originally depended on it before the harpy-CSV fallback).
