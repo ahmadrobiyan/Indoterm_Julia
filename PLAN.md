@@ -504,8 +504,8 @@ where coefficient > 0").
 | 3 | Aggregation 185→25 × 34 | `aggregation_data.jl`, `aggregate_model!.jl` | ✅ done & verified |
 | 4 | Derived parameters | `prepare_parameters.jl` | ✅ done & verified (85 params) |
 | 5 | Core equations (~3000 LOC TERM.TAB) | `build_model!.jl`, `build_equations.jl` | ✅ ~130 equation functions (Excerpts 6–29), builds at 3×5 (4564 vars, ~46s) |
-| 5a | Scale to 25×34 | — | 🔄 pending |
-| 5b | Ipopt solve | — | ❌ not started |
+| 5a | Scale to 25×34 | — | ✅ done, 2,436,062 vars / 1,370,212 cons |
+| 5b | Ipopt solve | `initialize_model!.jl` | 🔄 base static closure wired + verified; `solve_model!.jl` not started |
 | 6 | Dynamic + district extensions | `build_dynamics!.jl`, `build_district!.jl` | ❌ not started |
 | 7 | Closure & solve (Ipopt) | `initialize_model!.jl`..`run_model!.jl` | ❌ not started |
 | 8 | Reporting | `calculate_gdp.jl` | ❌ not started |
@@ -662,3 +662,111 @@ several lines away from anything just edited). Second attempt succeeded: **61.6s
 sizes), 1,370,212 constraints (+1,700 = 25×2×34, i.e. every `E_avesrctwist` instance active, none
 skipped by the `DELIVRD_R > 0` guard), 171 `vars` dict entries (+2)** — matches hand-calculated
 expectations exactly, confirming the fix is wired correctly end to end.
+
+## Step 5b — base static closure + touched/untouched diagnostic (session continuation)
+
+**`initialize_model!.jl` written and wired in.** Encodes `TERM.CMF`'s default `Exogenous` list (48
+names) as a fix/free split over the JuMP variables from `build_model!`/`build_model_full!`:
+`BASE_CLOSURE_SCALARS` (10 names) and `BASE_CLOSURE_ARRAYS` (32 names) get `JuMP.fix(...; force=true)`
+at a shock value (default 0.0 — benchmark replication); everything else stays free for Ipopt.
+`DYNAMIC_ONLY_CLOSURE_NAMES` (6 names: `delfwage_o`, `delUnity`, `emptrend`, `frnorm`, `frnorm_id`,
+`gtrend`) documents the Excerpt 50-54 names that aren't modeled yet, so the omission is greppable
+rather than silent. Deliberately does not implement `TERM.CMF`'s numéraire swap
+(`phi = Natmacro("GDPPI")`, needs Excerpt 30-40 reporting that's out of Step 5's scope) — `phi` stays
+fixed as the default numéraire. Every declared variable also gets a `0.0` start value, the correct
+guess for a %-change-at-benchmark formulation. Wired into `IndotermJulia.jl`'s include/export list;
+`test/run_full_model.jl` extended to call it and report fixed/free counts.
+
+**Built a touched/untouched constraint-term introspection diagnostic to verify the closure is sized
+correctly** (`test/diagnose_gap.jl`): walks `list_of_constraint_types(m)` filtered to affine
+constraints, collects every `VariableRef` referenced by any constraint's `.func.terms`, and reports
+any *free* (non-fixed) variable that never appears — i.e. has no defining or using equation at all.
+This is a stronger check than a raw vars-minus-constraints count, since it locates *which* variables
+are the problem, not just how many. First run: **13,877 untouched free variables** — `wlab_o=>850,
+xsuppmar_d=>10404, psuppmar_p=>1258, xsuppmar_rd=>306, xtrad_d=>162, fgret=>850, fhou2=>34,
+plab_id=>4, wlab_id=>4, rlab_id=>4, natfhou=>1`. None of this was expected from the closure alone, so
+each entry needed individual root-causing — this uncovered two more real bugs, described below.
+
+**Bug: `LAB_O` identically zero — traced to a leftover placeholder stub, not a data gap.**
+`wlab_o=>850` traced to `E_wlab_o!`/`E_plab_o!`/`E_wprim!`'s shared `LAB_O[i,d] > 1e-10` guard never
+passing. `params["LAB_O"]` derives from `agg["1LAB"]`, which derives from `build_pstras!.jl`'s
+`V1LAB_iod` — which had literally been left as `for o in 1:NO; V1LAB_iod[i,o,d] = 0.0; end`, a
+"We'll recompute below" comment that was never acted on. The correct computation needs `reg0`'s
+national labour-occupation shares (`OSHR`, IND×OCC) applied to `reg1`'s regional labour factor
+payment (`FAC_r[i,g_lab,d]`), but `OSHR` had never been added to `reg1`'s own output dict either.
+**Fixed**: added `"OSHR" => reg0["OSHR"]` to `build_reg1!.jl`'s output dict; replaced the zero-stub
+in `build_pstras!.jl` with `V1LAB_iod[i,o,d] = FAC_r[i,g_lab,d] * OSHR[i,o]`. Re-verified: untouched
+count 13,877 → 13,027 (−850, `wlab_o` fully gone), every other count unchanged — confirms no side
+effects on the rest of the model.
+
+**Bug (by far the most severe found in this project so far): 10 of 11 lookup-dict `*_setup!`
+functions in `build_equations.jl` were defined and exported but never called anywhere.** Many
+equations depend on a module-level `const XXX_idx = Dict{Tuple{...},Float64}()` that a dedicated
+`*_setup!()` function must populate *before* the equations that read it via `get(dict, key, 0.0)` are
+built — the equations never call their own setup function. Grepping every call site in
+`build_model!.jl` (the only place any `E_*!`/`*_setup!` function is invoked) found only one of these
+11 functions ever called (`E_delXGDPEXPa_setup!`, which builds constraints directly and doesn't share
+this shape). The other 10 — `E_plab_o_setup!`, `INVEST_setup!`, `USE_IS_setup!`, `USE_usc_setup!`,
+`TRADMAR_setup!`, `SUPPMAR_setup!`, `SUPPMAR_D_setup!`, `TRADE_setup!`, `PUR_src_setup!`,
+`TAX_PUR_setup!`, `STOCKS_setup!` — were dead code, meaning every equation reading their dicts
+(`E_plab_o!`, `E_wlab_o!`, `E_wprim!`, `E_pinvitot!`, `E_xint_i!`, `E_xuse!`, `E_xsuppmar_p!`,
+`E_psuppmar_p!`, `E_xsuppmar_d!`, `E_xsuppmar_rd!`, `E_xtrad_d!`, `E_xtrad_r!`, `E_xfind!`,
+`E_delTAXint!`, `E_delTAXhou!`, `E_delTAXinv!`, `E_delXGDPEXPb!`, `E_delPGDPEXPb!`) had been silently
+computing over an empty dict the whole time — a systemic silent-zero bug spanning labour prices,
+margin supply, market clearing, investment allocation, tax revenue, and GDP-expenditure
+decomposition, much wider-reaching than any single previous bug (`P021`, `2PUR`, `SGDD`, `LAB_O`).
+
+This directly interacted with the `LAB_O` fix above: making `LAB_O` nonzero let
+`E_plab_o!`/`E_wlab_o!`/`E_wprim!`'s guards start passing, but since `V1LAB_idx` (one of the 10 dead
+dicts) was still empty, those equations began wrongly forcing `plab_o`/`wlab_o`/`wprim` to exactly 0
+instead of being simply absent — "touched but wrongly valued" is invisible to the touched/untouched
+diagnostic, so this had to be caught by reasoning about the interaction, not by re-running the
+diagnostic alone. Also found in the course of the same investigation: `E_xinv_s!` (defines `xinv_s`,
+consumed by `E_xfinb!`) was never called anywhere in `build_model_full!` at all — a different bug
+shape (a wholesale missing equation-block call, not a missing setup call).
+
+**Fixed**: read `prepare_parameters.jl` in full to find the correct already-computed source array for
+each dict — `params["USE"]`, `params["TAX"]`, `params["PUR"]`, `params["INVEST"]`,
+`params["STOCKS"]`, plus `TMAR`/`MARS` newly extracted from `agg` — and added all 8 remaining
+`*_setup!()` calls (`E_plab_o_setup!` included) to `build_model_full!` in `build_model!.jl`, right
+before the Excerpt 6 block, guarded with `haskey(params, ...)` where the source itself is
+conditionally populated (`USE`/`TAX`/`PUR` only exist if `agg["BSMR"]`/`agg["UTAX"]` were present).
+Added the missing `E_xinv_s!(m, vars, na, nr, params)` call to the Excerpt 14 block. Deliberately did
+**not** resurrect `build_model!.jl`'s own pre-existing local `PUR_d = USE_d` computation (missing a
+`+ TAX_d` term and never actually used by anything) — used the correct, already-computed
+`params["PUR"]` instead.
+
+**Bug: `STOK` (stock-change) pass-through gap, found during the same investigation.**
+`params["STOCKS"]` (feeds `STOCKS_idx`, `GDPEXPSUM`, `CHECKA`/`CKRATA`,
+`E_delXGDPEXPb!`/`E_delPGDPEXPb!`) was silently defaulting to `zeros(T,na,nr)` via
+`prepare_parameters.jl`'s `agg["STOK"] !== nothing` guard, even though `reg1["STOK"]`/`reg2["STOK"]`
+(regional industry stock-change data) existed correctly upstream — `build_pstras!.jl`'s output dict
+simply never included a `"STOK"` key, the same silent-drop shape as the earlier `2PUR`/`UTAX` bugs.
+**Fixed** by adding `"STOK" => haskey(reg1, "STOK") ? reg1["STOK"] : nothing,` to `build_pstras!.jl`'s
+output dict, matching the existing `UTAX`/`2PUR` pass-through lines.
+
+**Final verification (2026-07-22).** Re-ran `test/diagnose_gap.jl` with all three fixes (8 setup!
+calls + `TMAR`/`MARS` extraction, `E_xinv_s!` call, `STOK` pass-through) applied together: untouched
+free vars dropped from **13,027 → 3,575** (−9,452). `xsuppmar_rd` (previously 306) is completely
+gone; `xsuppmar_d` fell from 10,404 → 1,258, now matching `psuppmar_p`'s count exactly — consistent
+with both sharing the same sparse margin-flow index set (real zero-valued combinations in the 25×34
+data, not a bug). Remaining breakdown (`xsuppmar_d=>1258, psuppmar_p=>1258, fgret=>850, xtrad_d=>162,
+fhou2=>34, plab_id=>4, wlab_id=>4, rlab_id=>4, natfhou=>1`) is not yet individually root-caused but
+looks like genuine data sparsity rather than new missing wiring — none of these changed shape when
+the setup calls were added.
+
+Also wrote `test/check_setup_dicts.jl` to numerically confirm every one of the 12 lookup dicts is
+non-empty with a real nonzero sum after `build_model_full!` — e.g. `V1LAB_idx` (3,400 entries, 2,686
+nonzero, sum 6.43e6, previously all zero), `TRADMAR_idx`/`SUPPMAR_idx`/`TRADE_idx`/`PUR_src_idx`/
+`TAX_idx`/`INVEST_C_idx`/`USE_IS_idx`/`USE_usc_idx`/`STOCKS_idx` all populated similarly — and that
+`agg["STOK"]` and `params["STOCKS"]` carry matching nonzero sums (33,956.96) end-to-end. This
+confirms `plab_o`/`wlab_o`/`wprim` are no longer wrongly forced to zero, closing the gap the
+touched/untouched diagnostic can't see on its own ("touched but wrongly valued").
+
+**Recurring pattern, now the ninth documented instance across this project**: data computed or
+available correctly at one pipeline stage, silently dropped by a missing dict-key write or missing
+function call at the very next stage, masked by a downstream `haskey`/`!== nothing` guard that
+degrades gracefully instead of erroring (`P021`/FRISCH, `2PUR`/investment, `SGDD`/SIGMADOMDOM,
+`LAB_O`/OSHR, `STOK`/STOCKS, and now the ten `*_setup!` dicts). Worth treating as a standing
+suspicion any time a variable seems to have no effect on a shock, or shows up fully/partially
+untouched in the diagnostic, even when its own equation function looks correct in isolation.

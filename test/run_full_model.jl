@@ -33,7 +33,14 @@ println("Variables:   $nvars")
 println("Constraints: $ncons")
 println("vars dict entries: $(length(vars))")
 
+println("\n--- initialize_model! (Step 5b: base static closure) ---")
+initialize_model!(m, vars)
+nfixed = count(is_fixed, all_variables(m))
+nfree = nvars - nfixed
+println("Fixed:  $nfixed")
+println("Free:   $nfree")
+
 println("\n"^2)
 println("="^60)
-println("FULL MODEL BUILD COMPLETED — vars=$nvars, cons=$ncons")
+println("FULL MODEL BUILD COMPLETED — vars=$nvars, cons=$ncons, fixed=$nfixed, free=$nfree")
 println("="^60)

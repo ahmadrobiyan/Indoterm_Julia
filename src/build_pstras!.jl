@@ -31,9 +31,9 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
 
     # ── Read MAKE, V1LAB, V1CAP, V1LND from reg1 ───────────────────────────
     MAKE_r   = reg1["MAKE"]  # COM×IND×DST
-    V1LAB_io = haskey(reg1, "FACT") ? nothing : nothing  # We'll recompute below
     # FAC_r from reg1: IND×FACTOR×DST
     FAC_r    = reg1["FACT"]  # IND × 4 × DST
+    OSHR     = parent(reg1["OSHR"])  # IND×OCC national labour-occupation shares (from reg0)
 
     V1LAB_iod = zeros(T, NI, NO, NR)
     V1CAP_id  = zeros(T, NI, NR)
@@ -44,7 +44,9 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
         g_cap = findfirst(==("Capital"),  ["Labour","Capital","Land","ProdTax"])
         g_lnd = findfirst(==("Land"),     ["Labour","Capital","Land","ProdTax"])
         g_ptx = findfirst(==("ProdTax"),  ["Labour","Capital","Land","ProdTax"])
-        for o in 1:NO; V1LAB_iod[i,o,d] = 0.0; end
+        for o in 1:NO
+            V1LAB_iod[i,o,d] = FAC_r[i,g_lab,d] * OSHR[i,o]
+        end
         V1CAP_id[i,d]  = FAC_r[i,g_cap,d]
         V1LND_id[i,d]  = FAC_r[i,g_lnd,d]
         V1PTX_id[i,d]  = FAC_r[i,g_ptx,d]
@@ -218,6 +220,7 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
         "BSMR" => haskey(ras, "BSMR") ? ras["BSMR"] : nothing,
         "UTAX" => haskey(reg1, "UTAX") ? reg1["UTAX"] : nothing,
         "2PUR" => haskey(ras, "2PUR") ? ras["2PUR"] : nothing,
+        "STOK" => haskey(reg1, "STOK") ? reg1["STOK"] : nothing,
     )
 
     PstrasResult(pstras=pstras_out, diag=Dict{String,Any}(), converged=converged)

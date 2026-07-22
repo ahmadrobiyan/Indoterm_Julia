@@ -377,6 +377,8 @@ function build_model_full!(agg, params)
     V1LAB = parent(agg["1LAB"]); V1CAP = parent(agg["1CAP"])
     V1LND = parent(agg["1LND"]); V1PTX = haskey(agg,"1PTX") ? parent(agg["1PTX"]) : zeros(Float64, na, nr)
     DIST  = haskey(agg,"DIST") ? parent(agg["DIST"]) : zeros(Float64, nr, nr)
+    TMAR  = haskey(agg,"TMAR") ? parent(agg["TMAR"]) : zeros(Float64, na, ns, nm, nr, nr)
+    MARS  = haskey(agg,"MARS") ? parent(agg["MARS"]) : zeros(Float64, nm, nr, nr, nr)
 
     LAB_O  = parent(params["LAB_O"]); PRIM   = parent(params["PRIM"])
     PUR_S  = parent(params["PUR_S"]); PUR_CS = parent(params["PUR_CS"])
@@ -387,6 +389,29 @@ function build_model_full!(agg, params)
 
     sigmadomimp = fill(5.0, na); sigmalab = fill(0.5, na); sigmaprim = fill(0.5, na)
     sigmaout = fill(0.5, na); exp_elast = fill(2.0, na)
+
+    # ── Populate lookup-dict caches consumed by guarded equations below.
+    # These were previously never called anywhere, so every equation reading
+    # them via `get(..., 0.0)` silently saw zeros (e.g. plab_o/wlab_o/wprim
+    # forced to 0 through V1LAB_idx, xsuppmar_d/xsuppmar_rd through
+    # SUPPMAR_idx/SUPPMAR_D_idx, xtrad_d/xtrad_r through TRADE_idx, etc).
+    E_plab_o_setup!(na, no, nr, V1LAB)
+    TRADMAR_setup!(na, nr, ns, nm, TMAR)
+    SUPPMAR_setup!(nm, nr, MARS, DIST)
+    SUPPMAR_D_setup!(nm, nr)
+    TRADE_setup!(na, nr, ns, TRADE)
+    if haskey(params, "USE")
+        USE_IS_setup!(na, nr, ns, params["USE"])
+        USE_usc_setup!(na, nr, ns, nu, params["USE"])
+    end
+    if haskey(params, "PUR")
+        PUR_src_setup!(na, nr, ns, nu, params["PUR"])
+    end
+    if haskey(params, "TAX") && haskey(params, "PUR")
+        TAX_PUR_setup!(na, nr, ns, nu, params["TAX"], params["PUR"])
+    end
+    INVEST_setup!(na, nr, params["INVEST"])
+    STOCKS_setup!(na, nr, params["STOCKS"])
 
     # ── Excerpt 6: Basic prices ──────────────────────────────────
     E_pimp!(m, vars, na, nr, params) # pimp = pfimp + phi
@@ -445,6 +470,7 @@ function build_model_full!(agg, params)
     E_xinvi!(m, vars, na, nr, params)
     E_pinvest!(m, vars, na, nr, nu)
     E_pinvitot!(m, vars, na, nr, params)
+    E_xinv_s!(m, vars, na, nr, params)
 
     # ── Excerpt 15: Investment rule ──────────────────────────────
     E_gret!(m, vars, na, nr)

@@ -351,6 +351,7 @@ function build_reg1!(reg0::Dict{String,Any},
         "ASUP" => NamedArray(ALLSUPPLY, Tuple([COM,SRC,REG]), (:COM,:SRC,:ORG)),
         "INVS" => NamedArray(INVEST, Tuple([COM,IND,REG]), (:COM,:IND,:DST)),
         "2PUR" => NamedArray(INVEST, Tuple([COM,IND,REG]), (:COM,:IND,:DST)),
+        "OSHR" => reg0["OSHR"],
     )
 
     diag_out = Dict{String,Any}(

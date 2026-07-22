@@ -16,6 +16,7 @@ include("aggregate_model!.jl")
 include("prepare_parameters.jl")
 include("build_equations.jl")
 include("build_model!.jl")
+include("initialize_model!.jl")
 
 export COM, IND, SRC, OCC, MAR, REG, DST, ORG, PRD, HOU
 export read_national_data, read_regsupp_data, read_distgone_data
@@ -25,5 +26,6 @@ export aggregate_model!, AGGCOM, SEC_MAP_185_to_25
 export AggResult
 export prepare_parameters!
 export build_model!, build_model_full!
+export initialize_model!, BASE_CLOSURE_SCALARS, BASE_CLOSURE_ARRAYS, DYNAMIC_ONLY_CLOSURE_NAMES
 
 end # module IndotermJulia
