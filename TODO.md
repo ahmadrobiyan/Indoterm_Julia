@@ -202,8 +202,40 @@
       `params["STOCKS"]` now carry matching nonzero sums (33,956.96) end-to-end — confirms `plab_o`/
       `wlab_o`/`wprim` are no longer wrongly forced to zero (the touched/untouched diagnostic alone
       can't detect "touched but wrongly valued," so this numeric check was the necessary complement).
-- [ ] Root-cause the remaining 3,575 untouched vars (lower priority — likely genuine data sparsity,
-      not a wiring bug, but not yet confirmed row-by-row).
+- [x] ~~Fix missing `E_ggro!`/`E_fgret!` equations (Excerpt 15 investment rule).~~ — **done
+      2026-07-22.** `fgret=>850` in the untouched breakdown exactly equaled `na*nr` (25×34), a red
+      flag for a wholesale missing equation rather than data sparsity. Grep confirmed `fgret` had
+      zero defining equations anywhere. Read `TERM.TAB` lines 738-777: `ggro` also lacked its own
+      equation — it only appeared as a term inside `E_xinvitot!`'s constraint, so it was "touched"
+      but underdetermined by `na*nr` equations (same masking pattern as the `xlab_id`/`realwage_id`
+      case below). **Fixed**: added `E_ggro!` (`ggro == finv1 + 0.33*(2*gret - invslack)`) and
+      `E_fgret!` (`gret == fgret + capslack`) to `build_equations.jl`, wired both into
+      `build_model_full!`'s Excerpt 15 block in `build_model!.jl` right after `E_xinvitot!`. All
+      referenced variables (`gret, ggro, finv1, invslack, fgret, capslack`) already existed as JuMP
+      variables — no new declarations needed. Re-ran `test/diagnose_gap.jl`: untouched dropped
+      3,575 → 2,725 (−850, exactly `na*nr`), `fgret` completely gone from the breakdown, no other
+      counts changed.
+- [x] ~~Fix missing "_id" labour-aggregate family (Excerpt 27: `E_plab_id!`, `E_realwage_id!`,
+      `E_xlab_id!`, `E_wlab_id!`, `E_rlab_id!`).~~ — **done 2026-07-22.** `plab_id=>4, wlab_id=>4,
+      rlab_id=>4` in the untouched breakdown each exactly equaled `no` (4 labour occupations) — same
+      100%-of-array red flag as `fgret` above. Grep confirmed all 5 equations in the family were
+      missing; `xlab_id`/`realwage_id` didn't show up as untouched only because they're *consumed*
+      (not defined) by an unrelated existing constraint at `build_equations.jl:1173-1174` — the same
+      "touched but not well-defined" masking as `ggro`. Also found the required coefficient
+      (`SLAB_ID`/`LAB_ID`, the region-summed labour aggregate and its share) had never been computed
+      in `prepare_parameters.jl` at all — only the sibling `LAB_I`/`SLAB_I` (per-industry) and
+      `LAB_IO` (per-region) existed. **Fixed**: added `p["LAB_ID"]`/`p["SLAB_ID"]` computation to
+      `prepare_parameters.jl` right after the existing `SLAB_I_arr` block (`LAB_ID[o] = sum_d
+      LAB_I[o,d]`, `SLAB_ID[o,d] = LAB_I[o,d]/LAB_ID[o]`); added the 5 equation functions to
+      `build_equations.jl` mirroring the sibling `_i`-family functions but summing over region `d`
+      with the `SLAB_ID` share weight instead of summing over industry `i`; wired all 5 calls into
+      `build_model_full!` between the `_i` and `_io` family calls in `build_model!.jl`. Re-ran
+      `test/diagnose_gap.jl`: untouched dropped 2,725 → 2,713 (−12, exactly `3*no`), `plab_id`/
+      `wlab_id`/`rlab_id` completely gone from the breakdown.
+- [ ] Root-cause the remaining 2,713 untouched vars (`xsuppmar_d=>1258, psuppmar_p=>1258,
+      xtrad_d=>162, fhou2=>34, natfhou=>1`) — lower priority, likely genuine data sparsity (none of
+      these changed shape across the last two rounds of unrelated fixes), but not yet confirmed
+      row-by-row.
 - [ ] `solve_model!.jl` — Ipopt feasibility solve (no objective), mirroring WayangJulia's
       `set_attribute` tuning (`max_iter`, `tol`, `constr_viol_tol`, adaptive `mu_strategy`).
 - [ ] `run_model!.jl` — homotopy/warm-start driver, only if a direct solve fails to converge on a

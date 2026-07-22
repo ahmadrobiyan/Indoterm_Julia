@@ -397,6 +397,19 @@ function prepare_parameters!(agg::Dict{String,Any})
     end
     p["SLAB_I"] = SLAB_I_arr
 
+    # Sum-over-industry-and-region labour aggregates (Excerpt 27, "_id" family)
+    LAB_ID = zeros(T, no)
+    for o in 1:no
+        LAB_ID[o] = sum(LAB_I[o,d] for d in 1:nr)
+    end
+    p["LAB_ID"] = LAB_ID
+
+    SLAB_ID_arr = zeros(T, no, nr)
+    for o in 1:no, d in 1:nr
+        SLAB_ID_arr[o,d] = LAB_ID[o] > 0 ? LAB_I[o,d] / LAB_ID[o] : 0.0
+    end
+    p["SLAB_ID"] = SLAB_ID_arr
+
     # ── PRIM_I / PRIMSHR (Excerpt 25) ──────────────────────────
     PRIM_I_v = zeros(T, nr)
     for i in 1:na, d in 1:nr

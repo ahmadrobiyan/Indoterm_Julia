@@ -7,7 +7,7 @@ export E_pvar!, E_pcst!, E_delPTX!, E_ptot!
 export E_xsub!, E_xlux!, E_xhouh_s_agg!, E_alux!, E_asub!, E_wlux!, E_phouhtot!, E_whouhtot!
 export E_xhoutot!, E_phoutot!
 export E_xinvi!, E_pinvest!, E_pinvitot!
-export E_gret!, E_xinvitot!, E_finv2!
+export E_gret!, E_xinvitot!, E_ggro!, E_fgret!, E_finv2!
 export E_xgov!, E_xgov_s!, E_fgovtot2!, E_fgovtot3!
 export E_pfexp!, E_xexpd!, E_xexp!, E_xexp_s!, E_xstocks!
 export E_xint_i!, E_xuse!
@@ -20,6 +20,7 @@ export E_pfin!, E_xfina!, E_xfinb!, E_xfinc!, E_xfind!, E_wfin!
 export E_delTAXint!, E_delTAXhou!, E_delTAXinv!, E_delTAXgov!, E_delTAXexp!
 export E_wlnd_i!, E_wcap_i!, E_wprim_i!, E_xlnd_i!, E_xcap_i!
 export E_plab!, E_plab_i!, E_realwage_i!, E_xlab_i!, E_wlab_i!, E_rlab_i!
+export E_plab_id!, E_realwage_id!, E_xlab_id!, E_wlab_id!, E_rlab_id!
 export E_plab_io!, E_xlab_io!, E_realwage_io!, E_wlab_io!, E_rlab_io!
 export E_delGDPINCa!, E_delGDPINCb!, E_delGDPINCc!, E_delGDPINCd!, E_delGDPINCe!, E_wgdpinc!
 export E_delXGDPEXPa_setup!, E_delXGDPEXPb!, E_delXGDPEXPc!
@@ -417,6 +418,17 @@ end
 function E_xinvitot!(m, vars, na, nr)
     xinvitot = vars["xinvitot"]; xcap = vars["xcap"]; ggro = vars["ggro"]
     @constraint(m, [i=1:na, d=1:nr], xinvitot[i,d] - xcap[i,d] == ggro[i,d])
+end
+
+function E_ggro!(m, vars, na, nr)
+    ggro = vars["ggro"]; gret = vars["gret"]
+    finv1 = vars["finv1"]; invslack = vars["invslack"]
+    @constraint(m, [i=1:na, d=1:nr], ggro[i,d] == finv1[i,d] + 0.33 * (2.0 * gret[i,d] - invslack))
+end
+
+function E_fgret!(m, vars, na, nr)
+    gret = vars["gret"]; fgret = vars["fgret"]; capslack = vars["capslack"]
+    @constraint(m, [i=1:na, d=1:nr], gret[i,d] == fgret[i,d] + capslack)
 end
 
 function E_finv2!(m, vars, na, nr)
@@ -931,6 +943,34 @@ end
 function E_rlab_i!(m, vars, na, nr, no)
     rlab_i = vars["rlab_i"]; xlab_i = vars["xlab_i"]; realwage_i = vars["realwage_i"]
     @constraint(m, [o=1:no, d=1:nr], rlab_i[o,d] == xlab_i[o,d] + realwage_i[o,d])
+end
+
+function E_plab_id!(m, vars, na, nr, no, params)
+    plab_id = vars["plab_id"]; plab_i = vars["plab_i"]
+    SLAB_ID = parent(params["SLAB_ID"])
+    @constraint(m, [o=1:no], plab_id[o] == sum(SLAB_ID[o,d] * plab_i[o,d] for d in 1:nr))
+end
+
+function E_realwage_id!(m, vars, na, nr, no, params)
+    realwage_id = vars["realwage_id"]; realwage_i = vars["realwage_i"]
+    SLAB_ID = parent(params["SLAB_ID"])
+    @constraint(m, [o=1:no], realwage_id[o] == sum(SLAB_ID[o,d] * realwage_i[o,d] for d in 1:nr))
+end
+
+function E_xlab_id!(m, vars, na, nr, no, params)
+    xlab_id = vars["xlab_id"]; xlab_i = vars["xlab_i"]
+    SLAB_ID = parent(params["SLAB_ID"])
+    @constraint(m, [o=1:no], xlab_id[o] == sum(SLAB_ID[o,d] * xlab_i[o,d] for d in 1:nr))
+end
+
+function E_wlab_id!(m, vars, na, nr, no)
+    wlab_id = vars["wlab_id"]; xlab_id = vars["xlab_id"]; plab_id = vars["plab_id"]
+    @constraint(m, [o=1:no], wlab_id[o] == xlab_id[o] + plab_id[o])
+end
+
+function E_rlab_id!(m, vars, na, nr, no)
+    rlab_id = vars["rlab_id"]; xlab_id = vars["xlab_id"]; realwage_id = vars["realwage_id"]
+    @constraint(m, [o=1:no], rlab_id[o] == xlab_id[o] + realwage_id[o])
 end
 
 function E_plab_io!(m, vars, na, nr, no, params)

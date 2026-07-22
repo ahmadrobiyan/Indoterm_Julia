@@ -770,3 +770,62 @@ degrades gracefully instead of erroring (`P021`/FRISCH, `2PUR`/investment, `SGDD
 `LAB_O`/OSHR, `STOK`/STOCKS, and now the ten `*_setup!` dicts). Worth treating as a standing
 suspicion any time a variable seems to have no effect on a shock, or shows up fully/partially
 untouched in the diagnostic, even when its own equation function looks correct in isolation.
+
+**Bug (tenth+ instance, a new sub-shape): `E_ggro!`/`E_fgret!` (Excerpt 15) never called at all.**
+Continuing to work through the remaining 3,575 untouched vars after the section above, `fgret=>850`
+stood out: 850 = `na*nr` exactly, i.e. *100%* of the array was untouched, not a sparse subset — a
+strong signal for "missing equation," not "genuine data sparsity." Grep confirmed `fgret` had zero
+defining equations in `build_equations.jl`. Reading `TERM.TAB` lines 738-777 (with its own comment
+that "normally `capslack` is exogenous and `fgret` endogenous," confirming the intended closure
+direction) showed `ggro` *also* lacked its own equation — it only appeared as an input term inside
+`E_xinvitot!`'s constraint, making it "touched" by the diagnostic even though it was underdetermined
+by exactly `na*nr` equations. This is the same masking shape noted above for "touched but wrongly
+valued," just for "touched but underdetermined" instead — the touched/untouched diagnostic alone
+cannot tell these apart from a correctly-defined variable; only checking the equation count against
+TABLO's source caught it. **Fixed**: added `E_ggro!` (`ggro[i,d] == finv1[i,d] + 0.33*(2*gret[i,d] -
+invslack)`) and `E_fgret!` (`gret[i,d] == fgret[i,d] + capslack`) to `build_equations.jl`, wired both
+into the Excerpt 15 block in `build_model!.jl` right after the existing `E_xinvitot!` call. All
+referenced variables (`gret`, `ggro`, `finv1`, `invslack`, `fgret`, `capslack`) already existed as
+JuMP variables from the original variable-declaration pass, so no new `@variable` calls were needed.
+Re-ran `test/diagnose_gap.jl`: untouched dropped 3,575 → 2,725 (−850, exactly `na*nr`), `fgret`
+completely gone from the breakdown, every other count unchanged.
+
+**Bug: missing "_id" labour-aggregate family (Excerpt 27) — `E_plab_id!`, `E_realwage_id!`,
+`E_xlab_id!`, `E_wlab_id!`, `E_rlab_id!` never called at all, plus a missing derived parameter.**
+Same size-matching heuristic: `plab_id=>4, wlab_id=>4, rlab_id=>4` in the post-`ggro`/`fgret`
+breakdown each equaled `no` (4 labour occupations) exactly — 100% of each array, not a sparse subset.
+Grep confirmed the entire 5-equation "_id" family was missing from `build_equations.jl`.
+`xlab_id`/`realwage_id` didn't appear in the untouched list at all, but only because they're
+*consumed* (not defined) by an unrelated, pre-existing constraint at `build_equations.jl:1173-1174`
+(`realwage_id[o] == 2.0*xlab_id[o] + flabsup_id[o]`, part of some other Excerpt-38-area block) — the
+same "touched but not well-defined" masking as `ggro` above, just one layer more hidden since it
+never shows up as a *count* at all. Reading `TERM.TAB` lines 1300-1370 confirmed the TABLO source
+(`SLAB_ID(o,d)`-weighted sums over region `d`, mirroring the already-implemented `_i` family's sums
+over industry `i`) and, cross-referencing `prepare_parameters.jl`, that the required coefficient
+(`LAB_ID`/`SLAB_ID`) had never been computed at all — only the sibling `LAB_I`/`SLAB_I`
+(per-industry) and `LAB_IO` (per-region) existed. **Fixed** in two steps: (1) added
+`p["LAB_ID"]`/`p["SLAB_ID"]` to `prepare_parameters.jl` right after the existing `SLAB_I_arr` block
+(`LAB_ID[o] = sum_d LAB_I[o,d]`; `SLAB_ID[o,d] = LAB_I[o,d]/LAB_ID[o]`, matching `LAB_I`/`SLAB_I`'s
+own share-normalization pattern); (2) added the 5 equation functions to `build_equations.jl`,
+mirroring the existing `E_plab_i!`/`E_realwage_i!`/`E_xlab_i!`/`E_wlab_i!`/`E_rlab_i!` functions
+exactly but summing over region `d` with the `SLAB_ID` weight instead of summing over industry `i`
+with `SLAB_I`/`V1LAB_idx` — since `SLAB_ID` is already a normalized share (sums to 1 over `d` for
+fixed `o`), no extra division was needed in the constraint itself, unlike the `_i` family's
+`lab_sum * lhs == sum(...)` form. Wired all 5 calls into `build_model_full!` in `build_model!.jl`,
+placed between the existing `_i`-family and `_io`-family call blocks. All referenced variables
+(`plab_id`, `xlab_id`, `wlab_id`, `rlab_id`, `realwage_id`) already existed as JuMP variables and were
+already present in the `vars` dict — no new declarations needed. Re-ran `test/diagnose_gap.jl`:
+untouched dropped 2,725 → 2,713 (−12, exactly `3*no`), `plab_id`/`wlab_id`/`rlab_id` completely gone
+from the breakdown, every other count unchanged.
+
+**Recurring pattern, now confirmed for an eleventh and twelfth time.** Both bugs above share a
+distinct signature worth naming explicitly: when a variable's own defining equation is missing but
+the variable is still referenced as an *input* to some other, unrelated equation, the touched/
+untouched diagnostic reports it as fine — "touched" only means "appears somewhere in some
+constraint," not "has its own equation." The reliable tell in both cases was a count that exactly
+matched an index-set size (`na*nr` for `fgret`, `no` for `plab_id`/`wlab_id`/`rlab_id`) — i.e. *100%*
+of an array was untouched, versus the genuine-data-sparsity entries (`xsuppmar_d`, `psuppmar_p`, etc.)
+which are all partial counts within a larger, only-partially-touched array. This 100%-vs-partial
+distinction is now the standard first check whenever a new untouched-variable entry needs
+root-causing: compute what `na*nr`, `no*nr`, `no`, etc. would be for the plausible index sets, and if
+the count matches exactly, assume missing equation before assuming data sparsity.
