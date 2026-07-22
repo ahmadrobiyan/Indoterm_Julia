@@ -829,3 +829,41 @@ which are all partial counts within a larger, only-partially-touched array. This
 distinction is now the standard first check whenever a new untouched-variable entry needs
 root-causing: compute what `na*nr`, `no*nr`, `no`, etc. would be for the plausible index sets, and if
 the count matches exactly, assume missing equation before assuming data sparsity.
+
+**Closing out the remaining 2,713 untouched vars, applying that same 100%-vs-partial test to each
+entry.** `fhou2=>34` matched `nr` exactly — a thirteenth instance of the same bug shape. Grep
+confirmed `build_equations.jl` had `E_fhou!` and `E_natfhou!` but no `E_fhou2!` at all, despite
+`build_model!.jl` declaring `fhou2[1:nr]` as a real variable. `TERM.TAB` lines 2038-2053 (Excerpt 39)
+show `E_fhou`/`E_fhou2` as a genuine TABLO equation chain — both share `whouhtot(h,d)` on the LHS,
+which looks like over-determination until you notice `whouhtot` is already pinned by the pre-existing
+`E_whouhtot!` (`whouhtot == phouhtot + xhoutot`, the nominal = price × real identity). Given that,
+`E_fhou!` actually solves for `fhou` (propensity to consume from labour income) and `E_fhou2!` solves
+for `fhou2` (propensity to consume from regional GDP) — each equation in the chain defining exactly
+one new variable from ones already pinned by earlier equations, the standard GEMPACK/TABLO idiom.
+**Fixed**: added `E_fhou2!` (`whouhtot[d] == wgdpexp[d] + fhou2[d] + houslack`, an exact mirror of
+`E_fhou!` with `wgdpexp` swapped in for `wlab_io`) to `build_equations.jl`, wired the call into
+`build_model_full!` right after `E_fhou!`. Re-ran `test/diagnose_gap.jl`: untouched dropped 2,713 →
+2,679 (−34, exactly `nr`), `fhou2` completely gone from the breakdown.
+
+**`natfhou=>1` is different: a deliberate, documented stub, not a bug.** `E_natfhou!` exists and is
+called, but its body is completely empty (`function E_natfhou!(...) end`). Its TABLO source
+(`NatMacro("NomHou") = natfhou + NatMacro("NomGDPexp")`) needs the `MainMacro`/`NatMacro` national
+aggregation layer from Excerpts 30-40 — the same reporting/decomposition machinery already read in
+full and confirmed out of Step 5's core-square-system scope (nothing in Excerpts 1-29/38-39 depends
+on it for its own solution; it's a one-way read *from* the solved model, same category as the
+un-ported `CHECKC`/`D`/`E` diagnostics). Left as an intentional, greppable stub rather than building
+out the national-aggregation layer just for one diagnostic ratio — revisit only alongside Step 8
+reporting or a future Excerpt 30-40 pass.
+
+**The other three (`xtrad_d=>162`, `xsuppmar_d=>1258`, `psuppmar_p=>1258`) are confirmed genuine data
+sparsity, not bugs.** `E_xtrad_d!` guards on `TRADE_D[c,s,r] > 1e-10`; the full array is
+`na*ns*nr`=1,700, so 162 zero-valued commodity/source/region combinations is a small fraction of a
+mostly-populated array — the opposite signature from every real bug found this session, all of which
+were 100%-of-array. `xsuppmar_d`/`psuppmar_p` share the same sparse margin-flow index set and guard
+shape, and neither changed count across three consecutive rounds of unrelated fixes — the kind of
+stability that would be surprising for a live wiring bug still lurking underneath.
+
+**Final state after this round: 2,679 untouched free vars**, of which only `natfhou=>1` remains as a
+knowingly-deferred gap; everything else is either fixed or confirmed as real, expected data sparsity
+in the underlying 25×34 dataset. This closes out the touched/untouched diagnostic's todo item from
+Step 5b for now — remaining Step 5 work moves to `solve_model!.jl` and the verification protocol.

@@ -593,6 +593,7 @@ function build_model_full!(agg, params)
 
     # ── Household closure (Excerpt 39) ───────────────────────────
     E_fhou!(m, vars, na, nr, ns, nu)
+    E_fhou2!(m, vars, na, nr, ns, nu)
     E_natfhou!(m, vars, na, nr, ns, nu, params)
 
     return m, vars

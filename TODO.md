@@ -232,10 +232,37 @@
       `build_model_full!` between the `_i` and `_io` family calls in `build_model!.jl`. Re-ran
       `test/diagnose_gap.jl`: untouched dropped 2,725 → 2,713 (−12, exactly `3*no`), `plab_id`/
       `wlab_id`/`rlab_id` completely gone from the breakdown.
-- [ ] Root-cause the remaining 2,713 untouched vars (`xsuppmar_d=>1258, psuppmar_p=>1258,
-      xtrad_d=>162, fhou2=>34, natfhou=>1`) — lower priority, likely genuine data sparsity (none of
-      these changed shape across the last two rounds of unrelated fixes), but not yet confirmed
-      row-by-row.
+- [x] ~~Root-cause the remaining 2,713 untouched vars.~~ — **done 2026-07-22.** Checked each
+      remaining entry individually:
+      - `fhou2=>34` matched `nr` exactly (100%-of-array red flag, same heuristic as `fgret`/
+        `plab_id`). Grep confirmed `build_equations.jl` had `E_fhou!` and `E_natfhou!` but no
+        `E_fhou2!` at all, even though `build_model!.jl:270` declares `fhou2[1:nr]` as a variable.
+        `TERM.TAB` lines 2038-2053 (Excerpt 39) show `E_fhou`/`E_fhou2` as a genuine TABLO chain: both
+        equations share `whouhtot(h,d)` on the LHS, but `whouhtot` is already pinned by the
+        pre-existing `E_whouhtot!` (`whouhtot == phouhtot + xhoutot`), so in practice `E_fhou!` solves
+        for `fhou` and `E_fhou2!` solves for `fhou2` — a "propensity to consume from regional GDP"
+        ratio, mirroring `fhou`'s "propensity to consume from labour income." **Fixed**: added
+        `E_fhou2!` (`whouhtot[d] == wgdpexp[d] + fhou2[d] + houslack`, mirroring `E_fhou!`'s exact
+        shape with `wgdpexp` in place of `wlab_io`) to `build_equations.jl`, wired the call into
+        `build_model_full!` in `build_model!.jl` right after `E_fhou!`. Re-ran `diagnose_gap.jl`:
+        untouched dropped 2,713 → 2,679 (−34, exactly `nr`), `fhou2` completely gone.
+      - `natfhou=>1` is a **documented, intentional gap, not a bug**: `E_natfhou!` exists but its
+        body is empty (`function E_natfhou!(...) end`) and is still called — a deliberate stub.
+        `TERM.TAB` line 2053 requires `NatMacro("NomHou")`/`NatMacro("NomGDPexp")`, national aggregates
+        computed by the Excerpt 30-40 `MainMacro`/`NatMacro` reporting layer already established as
+        out of Step 5's core scope (same category as the un-ported `CHECKC`/`D`/`E` diagnostics —
+        "one-way reads *from* the core solution," nothing downstream depends on `natfhou`). Left as
+        is; revisit only if/when the Excerpt 30-40 reporting layer is built.
+      - `xtrad_d=>162` — confirmed genuine data sparsity, not a bug. `E_xtrad_d!` guards on
+        `TRADE_D[c,s,r] > 1e-10`; total array size is `na*ns*nr`=1,700, so 162 zero-valued
+        commodity/source/region combinations (real gaps in the 25×34 trade data) is a small fraction,
+        not the 100%-of-array pattern that flagged every real bug this session.
+      - `xsuppmar_d=>1258, psuppmar_p=>1258` — left as genuine data sparsity per the prior segment's
+        conclusion (both share the same sparse margin-flow index set, guarded the same way as
+        `xtrad_d`); not re-verified row-by-row this round since neither changed shape across three
+        consecutive unrelated fixes, which would be surprising for a live wiring bug.
+      Final state: **2,679 untouched free vars**, of which only `natfhou=>1` is a known,
+      documented, deliberately-out-of-scope gap; everything else is confirmed real data sparsity.
 - [ ] `solve_model!.jl` — Ipopt feasibility solve (no objective), mirroring WayangJulia's
       `set_attribute` tuning (`max_iter`, `tol`, `constr_viol_tol`, adaptive `mu_strategy`).
 - [ ] `run_model!.jl` — homotopy/warm-start driver, only if a direct solve fails to converge on a

@@ -29,7 +29,7 @@ export E_pgdpexp!, E_wgdpexp!, E_wgdpdiff!
 export E_xgne!, E_pgne!, E_wgne!
 export E_delINDTAX!, E_delBUDG1!, E_delBUDG2!, E_delVGDPEXP!
 export E_labslack!, E_flab_i!, E_realwage!
-export E_fhou!, E_natfhou!
+export E_fhou!, E_fhou2!, E_natfhou!
 export E_plab_o_setup!, INVEST_setup!, USE_IS_setup!, USE_usc_setup!
 export TAX_PUR_setup!, TRADE_setup!, TRADMAR_setup!
 export SUPPMAR_setup!, SUPPMAR_D_setup!, STOCKS_setup!
@@ -1225,6 +1225,12 @@ function E_fhou!(m, vars, na, nr, ns, nu)
     whouhtot = vars["whouhtot"]; wlab_io = vars["wlab_io"]
     fhou = vars["fhou"]; houslack = vars["houslack"]
     @constraint(m, [d=1:nr], whouhtot[d] == wlab_io[d] + fhou[d] + houslack)
+end
+
+function E_fhou2!(m, vars, na, nr, ns, nu)
+    whouhtot = vars["whouhtot"]; wgdpexp = vars["wgdpexp"]
+    fhou2 = vars["fhou2"]; houslack = vars["houslack"]
+    @constraint(m, [d=1:nr], whouhtot[d] == wgdpexp[d] + fhou2[d] + houslack)
 end
 
 function E_natfhou!(m, vars, na, nr, ns, nu, params)
