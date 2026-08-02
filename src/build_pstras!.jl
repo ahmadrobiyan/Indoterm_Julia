@@ -170,9 +170,12 @@ function build_pstras!(ras::Dict{String,Any}, reg1::Dict{String,Any},
     end
 
     # ── Recompute DISTGONE (258-277) ────────────────────────────────────────
-    DISTANCE = reg1["MAKE"]  # not right — need DISTANCE from reg2
-    # Actually DISTANCE is in ras["DIST"]
-    DISTANCE = ras["DIST"]  # ORG×DST (NR×NR)
+    # DISTANCE is the origin×destination distance matrix, ORG×DST (NR×NR). This
+    # previously read `DISTANCE = reg1["MAKE"]` on the line above, flagged in place
+    # as "not right", and was then immediately overwritten by the correct value —
+    # so the wrong assignment never reached the DISTGONE loop below. Dead code with
+    # a comment that read like an open defect; removed.
+    DISTANCE = ras["DIST"]
 
     TRADE_R_csd = zeros(T, NC, NS, NR)
     for c in 1:NC, s in 1:NS, d in 1:NR

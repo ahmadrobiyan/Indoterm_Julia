@@ -78,8 +78,11 @@ function aggregate_model!(premod::Dict{String,Any})
         agg["DIST"] = copy(_unwrap(premod["DIST"]))
     end
 
-    # IND-indexed flows: sum-aggregate over IND
-    for k in ["1LAB", "1CAP", "1LND"]
+    # IND-indexed flows: sum-aggregate over IND.
+    # STOC (CAPSTOK, Excerpt 50) is a value FLOW — capital stock in currency
+    # units — so it sums like 1CAP, and must NOT go in the weighted-average
+    # parameter list below with DPRC/TARG/... (those are rates/elasticities).
+    for k in ["1LAB", "1CAP", "1LND", "STOC"]
         if haskey(premod, k)
             agg[k] = _agg_first(_unwrap(premod[k]), mp, na)
         end
@@ -147,15 +150,82 @@ function aggregate_model!(premod::Dict{String,Any})
         end
     end
 
-    # IND×REG dynamic parameters (weight by MAKE output)
-    for k in ["DPRC", "TARG", "TFRO", "QRAT", "ALFA", "RADJ", "REXP"]
+    # ── IND×REG dynamic parameters ────────────────────────────────────────────
+    # These were ALL weighted by MAKE output, which is wrong for the ones that are
+    # ratios of value flows over the capital stock. `build_premod!.jl:131-139`
+    # constructs CAPSTOK = CAP/RNORMAL precisely so the benchmark GROSSRET =
+    # CAP/CAPSTOK equals RNORMAL exactly — the steady-state condition. But STOC is
+    # a value flow and is SUMMED (line 85), while the rate was averaged by output,
+    # so after aggregation sum(CAP)/sum(CAPSTOK) no longer equalled the carried
+    # rate. `test/diag_rnormal_consistency.jl` measured the damage: the identity
+    # broke for 15 of 25 sectors, worst at sector 2 (ratio 0.7081, i.e. 29% off).
+    #
+    # For a rate r_j = flow_j / K_j, the only aggregate consistent with summed
+    # components is sum(flow_j)/sum(K_j) — which is exactly the arithmetic mean
+    # weighted by the DENOMINATOR K_j, not by output:
+    #
+    #     sum(r_j * K_j) / sum(K_j) = sum(flow_j) / sum(K_j)   ✓ exact
+    #
+    # so weighting these by STOC makes the identity hold by construction rather
+    # than approximately. Output weighting is biased upward relative to this
+    # whenever the rate varies within a group, because the low-rate members carry
+    # disproportionately large stocks (CAPSTOK divides by the small rate).
+    STOC_raw = haskey(premod, "STOC") ? _unwrap(premod["STOC"]) : nothing
+
+    # Element-wise weighted mean: `W` must match `arr` in every axis, so the
+    # weighting is done per (industry, region) cell rather than against an
+    # industry total. That matters — the correct regional rate is
+    # sum_j CAP[j,d] / sum_j CAPSTOK[j,d] within each region d separately.
+    function _wavg_by(arr, map, W)
+        @assert size(arr) == size(W) "weight shape $(size(W)) != data shape $(size(arr))"
+        rest_ax = size(arr)[2:end]
+        out = zeros(Float64, na, rest_ax...)
+        den = zeros(Float64, na, rest_ax...)
+        for i in 1:length(map), rest in CartesianIndices(rest_ax)
+            w = W[i, rest]
+            w > 0 || continue
+            out[map[i], rest] += arr[i, rest] * w
+            den[map[i], rest] += w
+        end
+        for j in 1:na, rest in CartesianIndices(rest_ax)
+            den[j, rest] > 0 && (out[j, rest] /= den[j, rest])
+        end
+        out
+    end
+
+    # Rates whose denominator IS the capital stock: depreciation (deprec/K),
+    # RNORMAL (CAP/K), and GROTREND (trend investment/K).
+    _capstok_rates = ["DPRC", "TARG", "TFRO"]
+    # QRATIO is a ratio of two investment/capital ratios, so its exact weight is
+    # trend investment = GROTREND*CAPSTOK rather than the stock itself.
+    _qrat_weight = (STOC_raw !== nothing && haskey(premod, "TFRO")) ?
+        _unwrap(premod["TFRO"]) .* STOC_raw : STOC_raw
+
+    for k in _capstok_rates
+        if haskey(premod, k)
+            agg[k] = STOC_raw === nothing ?
+                _wavg_nd(_unwrap(premod[k]), mp, MAKE_i, MAKE_i_agg) :
+                _wavg_by(_unwrap(premod[k]), mp, STOC_raw)
+        end
+    end
+    if haskey(premod, "QRAT")
+        agg["QRAT"] = _qrat_weight === nothing ?
+            _wavg_nd(_unwrap(premod["QRAT"]), mp, MAKE_i, MAKE_i_agg) :
+            _wavg_by(_unwrap(premod["QRAT"]), mp, _qrat_weight)
+    end
+    # ALFA (investment elasticity), RADJ (partial adjustment) and REXP (GRETEXP)
+    # are behavioural parameters, not ratios of value flows, so there is no
+    # exactness argument to move them off output weighting — left as they were
+    # rather than changed on taste. (REXP is in any case recomputed downstream at
+    # `prepare_parameters.jl:843` from RNORMAL/QRATIO/ALPHA_D.)
+    for k in ["ALFA", "RADJ", "REXP"]
         if haskey(premod, k)
             agg[k] = _wavg_nd(_unwrap(premod[k]), mp, MAKE_i, MAKE_i_agg)
         end
     end
 
     # COM-indexed parameters (weight by TRAD)
-    for k in ["SGDD"]
+    for k in ["SGDD", "P015"]
         if haskey(premod, k)
             data = _unwrap(premod[k])
             if ndims(data) == 1 && size(data,1) == 185

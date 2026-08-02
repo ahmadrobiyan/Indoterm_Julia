@@ -8,76 +8,242 @@ GEMPACK's TABmate Tools, followed by `Rest endogenous;`. Six of those 48
 Excerpt 50-54 dynamic extension and are not declared as JuMP variables yet (no
 `build_dynamics!.jl` — Step 6, still pending) — they're simply skipped here.
 
-This module intentionally does NOT apply any of `TERM.CMF`'s `swap` statements
-(the active numeraire swap `phi = Natmacro("GDPPI")`, or the dynamic-closure swaps
-for `xhouhtot`/`houslack`/`fgovtot`/`xcap`/`finv1`/`delfwage`): the numeraire swap
-needs `Natmacro("GDPPI")`, a national-aggregate reporting variable from Excerpts
-30-40 that isn't built (out of Step 5's scope by design — see PLAN.md), and the
-closure swaps need Step 6 dynamic variables. What's implemented here is the base
-*static* closure — `phi` (the exchange rate) is left as the (default) numeraire,
-fixed at its benchmark value. Step 6 can layer its own swaps on top once
-`build_dynamics!.jl` exists.
+Applies `TERM.CMF`'s active numeraire swap `phi = Natmacro("GDPPI")` when
+`NatMacro` is present (built by `build_macros!`): free `phi`, fix
+`NatMacro(GDPPI)` at 1.0. Dynamic-closure swaps (`xhouhtot`/`houslack`/
+`fgovtot`/`xcap`/`finv1`/`delfwage`) are NOT applied — those need a multi-period
+driver; under the base static closure the dynamic block stays passive.
 """
 
 # TERM.CMF Exogenous list, scalar-shaped variables (`@variable(m, name)`, no index)
+# `delUnity`, `frnorm_id` and `delfwage_o` are dynamic-extension scalars: they were
+# in DYNAMIC_ONLY_CLOSURE_NAMES while undeclared, and moved here once Step 6's
+# `build_dynamics!.jl` declared them. All three are additive (benchmark 0), so the
+# base static closure leaves the dynamic mechanism switched off — `delUnity` is
+# exogenous but unshocked, exactly as TERM.TAB's Excerpt 50 comment prescribes.
+# `phi` is NOT here: TERM.CMF swaps it free against NatMacro("GDPPI") (see end
+# of initialize_model!). With macros present that is the real numeraire.
 const BASE_CLOSURE_SCALARS = [
     "blabnat", "bprimnat", "capslack", "fgovgen", "flab_iod", "houslack",
-    "invslack", "natfpexp", "natfqexp", "phi",
+    "invslack", "natfpexp", "natfqexp",
+    "delUnity", "frnorm_id", "delfwage_o",
 ]
 
 # TERM.CMF Exogenous list, array-shaped variables (`@variable(m, name[...])`)
 const BASE_CLOSURE_ARRAYS = [
     "acap", "alnd", "atot", "atrad", "atradmar", "bint_scd", "blab",
     "blab_d", "bprim", "bprim_d", "delPTXRATE", "fgov", "fgovtot",
-    "fgov_s", "finv1", "flabsupA", "flabsup_id", "flab_id", "flab_io",
+    "fgov_s", "finv1", "flab", "flabsupA", "flabsup_id", "flab_id", "flab_io",
     "fpexp", "fpexp_d", "fqexp", "fqexp_d", "nhou", "pfimp", "srctwist",
     "tuser_su", "tuser_sud", "tuser_ud", "xcap", "xhouhtot", "xlnd",
+    # Dynamic extension (Step 6, Excerpts 51/54) — see the note on
+    # BASE_CLOSURE_SCALARS. `frnorm`/`gtrend` are IND×DST, `emptrend` is OCC.
+    "emptrend", "frnorm", "gtrend",
 ]
 
-# Names in TERM.CMF's default Exogenous list that are Step 6 (dynamic, Excerpts
-# 50-54) scope and are not declared as variables yet — kept here only so the
-# omission is documented and greppable, not silently dropped.
-const DYNAMIC_ONLY_CLOSURE_NAMES = [
-    "delfwage_o", "delUnity", "emptrend", "frnorm", "frnorm_id", "gtrend",
+# Free (non-closure) variables that are still %-change-style shifters/shocks or
+# `(change)`-declared absolute deltas under the levels conversion (see PLAN.md) —
+# these keep the "correct at 0" benchmark, unlike the bmk=1 ratios and genuine
+# quantity/value variables that make up the rest of the model. Fixed-by-closure
+# names (BASE_CLOSURE_SCALARS/ARRAYS) already get their shock value regardless of
+# start value, so they're not repeated here — this list is only the ones that
+# would otherwise wrongly default to the generic ratio start below.
+const ZERO_START_NAMES = [
+    "labslack", "flab_i",                                   # Excerpt 38 free wage-shifter residuals
+    "fhou", "fhou2", "natfhou",                              # Excerpt 39 free household closure residuals
+    "wgdpdiff",                                              # difference of two bmk=1 ratios
+    "delXGDPEXP", "delPGDPEXP", "delVGDPEXP",                # Excerpt 29 GDP expenditure decomposition
+    "delGDPINC", "delINDTAX", "delBUDG1", "delBUDG2",        # Excerpt 28/29 GDP income & budget decomposition
+    "delTAXint", "delTAXhou", "delTAXinv", "delTAXgov", "delTAXexp", "delPTX",  # Excerpt 26 tax revenue deltas
+    "fgovtot", "fgovtot2", "fgovtot3",                        # government total-shifter aggregates
+    "finv2", "fgret",                                         # investment closure shifters (finv1 counterpart)
+    "gret", "ggro",                                           # Excerpt 15 rate-of-return / capital-growth GAPS (bmk=0, log-built); the block comment lists them as additive but they were omitted here → wrongly defaulted to 1.0 (E_gret/E_ggro/E_xinvitot/E_fgret each violated 150× by exactly 1.0)
+    "pfexp",                                                  # Excerpt 16 LOG export price (E_pfexp: pfexp=log(ppur)-log(phi)=0 at bmk); free var, wrongly defaulted to 1.0 → E_pfexp (150×) and E_xexpd (145×, magnitude=exp_elast) violated
+    "avesrctwist",                                            # DELIVRD-weighted avg of the additive srctwist shifter (E_avesrctwist, bmk=0)
+    # NOTE: `fxstocks` and `asuppmar` moved to OMIT_NAMES (fixed, not free) —
+    # TERM.TAB `Omit` (:830, :2575) deletes them, so they carry no equation.
+    # Step 6 dynamic extension (Excerpts 50-54): every free variable there is an
+    # additive log-gap or a TABLO `(change)` variable, so all benchmark at 0.
+    # (`natcapstok`/`natxinvitot`/`natpinvitot` are bmk=1 indices declared
+    # `>= 1e-6`, so they correctly take the generic 1.0 default and are absent.)
+    "faccum", "finv4", "gro", "rnorm", "mratio", "gretxp",
+    "delgret", "delgretexp", "delempratio", "delwagerate", "delfwage", "natggro",
+    # Excerpts 31-32 macro reporting: MainMacro/NatMacro/SelMacro and the import
+    # indices are bmk=1 ratios (declared `>= 1e-6`, so they take the 1.0 default
+    # and are absent here); these are the additive log-gap / (change) ones.
+    "contMainMacro", "shrBoT", "shrBoTnom", "shrBoTnom2", "finvgdp",
+]
+
+# Names in TERM.CMF's default Exogenous list that were Step 6 (dynamic, Excerpts
+# 50-54) scope and not yet declared as variables.
+# **Now empty**: `build_dynamics!.jl` (Step 6) declares all six, and they have
+# moved into BASE_CLOSURE_SCALARS (`delUnity`, `frnorm_id`, `delfwage_o`) and
+# BASE_CLOSURE_ARRAYS (`emptrend`, `frnorm`, `gtrend`). Kept as an empty list so
+# the closure cross-check against TERM.CMF's 48 Exogenous names still has a
+# documented home for any future not-yet-declared name.
+const DYNAMIC_ONLY_CLOSURE_NAMES = String[]
+
+# `TERM.TAB`'s `Omit` statements (origin/TERM.TAB:830 `Omit fxstocks;` and
+# :2575 `Omit !fgov! flab ahou_s asuppmar !atradmar! bint_s !atrad!;`). GEMPACK
+# `Omit` DELETES a variable from the model — it has no equation and is held at
+# its neutral benchmark. The levels-port equivalent is to fix it: a value-flow /
+# additive-shifter Omit (asuppmar, fxstocks — declared unbounded) is pinned at
+# 0.0, a ratio-type Omit (bint_s, ahou_s — declared `>= 1e-6`) at 1.0, using the
+# same `_is_ratio_type` test as the closure arrays. Leaving these endogenous (as
+# the port originally did) under-determines the square system: bint_s(3750) +
+# asuppmar(1944) + ahou_s(150) + fxstocks(150) free variables with no defining
+# equation (`flab` is already exogenous via BASE_CLOSURE_ARRAYS, so it's not
+# repeated here). This is a structural modelling fact from the TAB source, not a
+# closure choice — kept in its own list so it's never confused with TERM.CMF's
+# Exogenous closure and never accidentally swapped free.
+const OMIT_NAMES = [
+    "ahou_s", "asuppmar", "bint_s", "fxstocks",
 ]
 
 _varrefs(v::VariableRef) = (v,)
 _varrefs(v::AbstractArray) = v
 
+# Same `>= 1e-6` convention `test/solve_benchmark.jl` already uses to classify
+# free variables as ratio-type (bmk=1) vs. shifter/shock-type (bmk=0). Applied
+# here to CLOSURE variables too: `TERM.CMF`'s Exogenous list mixes genuine
+# %-change-style shocks (`fgov`, `finv1`, ... — unbounded or `>=0`, correctly
+# benchmarked at 0.0) with levels-form ratio variables (`phi`, `bint_scd`,
+# `tuser_su`/`_sud`/`_ud`, `acap`, `alnd`, `atot`, `blab*`, `bprim*`, `nhou`,
+# `pfimp`, `xhouhtot`, `blabnat`, `bprimnat` — declared `>= 1e-6`, benchmarked
+# at 1.0). Fixing the latter group at 0.0 (this function's behavior before this
+# fix) sends every `log(...)` reading them to `-Inf`, which is exactly what
+# `test/check_start_point.jl` caught: 124,100 constraints evaluating non-finite
+# at the initial point, concentrated in the `tuser`/`aint_s`/`bint_scd` family.
+_is_ratio_type(vr::VariableRef) = JuMP.has_lower_bound(vr) && isapprox(JuMP.lower_bound(vr), 1e-6; atol=1e-9)
+
 """
     initialize_model!(m, vars; shocks=Dict())
 
 Fix every variable named in `BASE_CLOSURE_SCALARS`/`BASE_CLOSURE_ARRAYS` at its
-shock value (default `0.0` — a benchmark run with no shock replicates the base
-data exactly), leave every other declared variable free for Ipopt to solve, and
-set a `0.0` start value on every variable (the correct starting guess for a
-%-change formulation with all-benchmark data).
+benchmark ("no shock") value — `1.0` for ratio-type closure variables (declared
+`>= 1e-6`; see `_is_ratio_type`) and `0.0` for genuine shift/shock-type closure
+variables (unbounded or `>= 0`) — leave every other declared variable free for
+Ipopt to solve, and set a start value on every free variable: `0.0` for names in
+`ZERO_START_NAMES` (shifters/`(change)` deltas, still benchmark-0 under the
+levels conversion — see PLAN.md) and `1.0` for everything else (the vast
+majority of the model: bmk=1 price/quantity-index ratios).
+
+`bmk_levels` (from `benchmark_levels(params)`) overrides that generic default for
+genuine quantity/value variables, seeding each at its true benchmark value-flow
+(e.g. `xmake`→MAKE, `xint`→PUR, `xlab`→V1LAB). Under the "P = 1, Q = value-flow"
+calibration this makes the benchmark an (almost) exact solution — without it the
+value-level identities and `delTAX` equations violate by ~the flow magnitude
+(≈1e10), which is what stalled the Ipopt solve. `bmk_levels` also drives the
+closure fix values, so quantity closure vars (`xcap`, `xlnd`) are pinned at their
+benchmark flow rather than the wrong ratio/0 default. Pass an empty dict to keep
+the old generic behavior.
 
 `shocks` maps a closure variable name to either a scalar (applied to every
 element) or an array matching that variable's shape (applied element-wise) —
-e.g. `Dict("blabnat" => -3.0)` for `TERM.CMF`'s `Shock blabnat = -3;`.
+e.g. `Dict("blabnat" => -3.0)` for `TERM.CMF`'s `Shock blabnat = -3;`. A shock
+value passed here always overrides the ratio-vs-shift benchmark default above.
 """
-function initialize_model!(m::JuMP.Model, vars::Dict{String,Any}; shocks::Dict{String,Any}=Dict{String,Any}())
-    for (_, v) in vars
-        for vr in _varrefs(v)
-            JuMP.set_start_value(vr, 0.0)
+function initialize_model!(m::JuMP.Model, vars::Dict{String,Any};
+                           shocks::Dict{String,Any}=Dict{String,Any}(),
+                           bmk_levels::Dict{String,Any}=Dict{String,Any}(),
+                           numeraire::Symbol=:gdppi)
+    zero_start = Set(ZERO_START_NAMES)
+    for (nm, v) in vars
+        # Genuine quantity/value variables (listed in `bmk_levels`) start at their
+        # true benchmark value-flow; everything else keeps the generic default —
+        # 0.0 for shifters/(change) deltas, 1.0 for bmk=1 price/index ratios.
+        lvl = get(bmk_levels, nm, nothing)
+        default = nm in zero_start ? 0.0 : 1.0
+        if lvl === nothing
+            for vr in _varrefs(v)
+                JuMP.set_start_value(vr, default)
+            end
+        elseif v isa AbstractArray
+            for idx in eachindex(v)
+                JuMP.set_start_value(v[idx], lvl isa AbstractArray ? lvl[idx] : lvl)
+            end
+        else
+            JuMP.set_start_value(v, lvl isa AbstractArray ? first(lvl) : lvl)
         end
     end
 
     for nm in BASE_CLOSURE_SCALARS
         haskey(vars, nm) || continue
-        val = get(shocks, nm, 0.0)
-        JuMP.fix(vars[nm], val; force=true)
+        vr = vars[nm]
+        lvl = get(bmk_levels, nm, nothing)
+        bmk = lvl !== nothing ? (lvl isa AbstractArray ? first(lvl) : lvl) :
+              (_is_ratio_type(vr) ? 1.0 : 0.0)
+        val = get(shocks, nm, bmk)
+        JuMP.fix(vr, val; force=true)
     end
 
     for nm in BASE_CLOSURE_ARRAYS
         haskey(vars, nm) || continue
         v = vars[nm]
-        shock = get(shocks, nm, 0.0)
+        lvl = get(bmk_levels, nm, nothing)
+        # Closure quantity/value arrays (e.g. xcap, xlnd) are fixed at their
+        # benchmark flow, not the ratio/0 default — otherwise a `>= 0`-declared
+        # capital/land quantity gets pinned to 0 at the benchmark.
+        bmk = lvl !== nothing ? lvl : (_is_ratio_type(first(v)) ? 1.0 : 0.0)
+        shock = get(shocks, nm, bmk)
         for idx in eachindex(v)
             val = shock isa AbstractArray ? shock[idx] : shock
             JuMP.fix(v[idx], val; force=true)
         end
+    end
+
+    # TERM.TAB `Omit` variables (see OMIT_NAMES): held at neutral benchmark
+    # (ratio-type → 1.0, additive-shifter → 0.0), exactly like GEMPACK deletes
+    # them. Not shockable — an Omit is structural, so `shocks` is intentionally
+    # NOT consulted here.
+    for nm in OMIT_NAMES
+        haskey(vars, nm) || continue
+        v = vars[nm]
+        bmk = _is_ratio_type(first(v)) ? 1.0 : 0.0
+        for idx in eachindex(v)
+            JuMP.fix(v[idx], bmk; force=true)
+        end
+    end
+
+    # NUMERAIRE. `numeraire=:gdppi` applies TERM.CMF's active swap
+    # `swap phi = Natmacro("GDPPI");` — free the exchange rate, pin the national
+    # GDP price index at 1.0. `numeraire=:exrate` declines the swap and leaves phi
+    # exogenous, which is the exchange-rate numeraire the model has by default.
+    # `numeraire=:cpi` is the same swap pattern but pins `NatMacro("CPI")`
+    # instead — the national household consumer price index, defined in
+    # `build_macros!.jl`'s `src_of["CPI"] = d -> pfin[1,d]` (regional household
+    # price index, weighted-averaged into NatMacro via WMAIN/WNAT). That is the
+    # live constraint feeding NatMacro's CPI row; the *other* `"CPI"` mapping in
+    # `build_macros!.jl` (`wsrc`, using `PUR_CS[u_hou,d]`) only builds the fixed
+    # WMAIN weight, not a variable to pin against.
+    #
+    # This is a real choice, not a formality: the swap is COMMENTED OUT in
+    # `origin/coalprice.CMF:72`, so the published draft report's simulation is an
+    # exchange-rate-numeraire run. Applying the GDPPI swap to it would rebase every
+    # nominal result — the CPI column most visibly — against a different yardstick
+    # and make the comparison to Table 2 meaningless. It was applied here
+    # unconditionally until that file was read.
+    numeraire in (:gdppi, :exrate, :cpi) ||
+        error("initialize_model!: numeraire must be :gdppi, :exrate, or :cpi, got :$numeraire")
+
+    if numeraire === :exrate
+        haskey(vars, "phi") && JuMP.fix(vars["phi"], get(shocks, "phi", 1.0); force=true)
+    elseif numeraire === :cpi && haskey(vars, "NatMacro") && haskey(vars, "phi")
+        k_cpi = findfirst(==("CPI"), MAINMACROS)
+        if k_cpi !== nothing
+            JuMP.is_fixed(vars["phi"]) && JuMP.unfix(vars["phi"])
+            JuMP.set_start_value(vars["phi"], 1.0)
+            JuMP.fix(vars["NatMacro"][k_cpi], 1.0; force=true)
+        end
+    elseif haskey(vars, "NatMacro") && haskey(vars, "phi")
+        k_gdppi = findfirst(==("GDPPI"), MAINMACROS)
+        if k_gdppi !== nothing
+            JuMP.is_fixed(vars["phi"]) && JuMP.unfix(vars["phi"])
+            JuMP.set_start_value(vars["phi"], 1.0)
+            JuMP.fix(vars["NatMacro"][k_gdppi], 1.0; force=true)
+        end
+    elseif haskey(vars, "phi")
+        JuMP.fix(vars["phi"], get(shocks, "phi", 1.0); force=true)
     end
 
     return m

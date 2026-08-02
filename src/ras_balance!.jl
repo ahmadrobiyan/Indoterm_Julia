@@ -26,15 +26,15 @@ function ras_balance!(reg2::Dict{String,Any})
     TRADE_data    = reg2["TRAD"]  # COM×SRC×ORG×DST
     SUPPMAR_data  = reg2["MARS"]  # MAR×ORG×DST×PRD
     TRADMAR_data  = reg2["TMAR"]  # COM×SRC×MAR×ORG×DST
-    BASIC_U       = parent(reg2["BSCU"])
-    MARGINS_U     = parent(reg2["MRGU"])
-    IMPORT_cr     = parent(reg2["IMPS"])
-    MAKE_I_cd     = parent(reg2["COST"])
 
     # Raw copies for updates
-    TRADE   = copy(parent(TRADE_data))
-    SUPPMAR = copy(parent(SUPPMAR_data))
-    TRADMAR = copy(parent(TRADMAR_data))
+    TRADE   = copy(parent(TRADE_data))::Array{T,4}
+    SUPPMAR = copy(parent(SUPPMAR_data))::Array{T,4}
+    TRADMAR = copy(parent(TRADMAR_data))::Array{T,5}
+    BASIC_U   = parent(reg2["BSCU"])::Array{T,3}
+    MARGINS_U = parent(reg2["MRGU"])::Array{T,4}
+    IMPORT_cr = parent(reg2["IMPS"])::Array{T,2}
+    MAKE_I_cd = parent(reg2["COST"])::Array{T,2}
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 1 — trdras: conventional sequential scaling
@@ -49,9 +49,15 @@ function ras_balance!(reg2::Dict{String,Any})
     # 1a. Scale TRADE(mar,dom) + SUPPMAR to MAKE_I (103-110)
     for m in MAR_idx_full
         for r in 1:NR
-            tem = sum(TRADE[m,1,r,d] + sum(SUPPMAR[m,rr,d,r] for rr in 1:NR) for d in 1:NR)
+            tem = 0.0
+            @inbounds for d in 1:NR
+                tem += TRADE[m,1,r,d]
+                for rr in 1:NR
+                    tem += SUPPMAR[m,rr,d,r]
+                end
+            end
             sc = tem > 0 ? MAKE_I_cd[m,r] / tem : 1.0
-            for d in 1:NR
+            @inbounds for d in 1:NR
                 TRADE[m,1,r,d] *= sc
                 for p in 1:NR
                     SUPPMAR[m,r,d,p] *= sc
@@ -60,12 +66,14 @@ function ras_balance!(reg2::Dict{String,Any})
         end
     end
 
+
     # 1b. Scale TRADE(nonmar,dom) to MAKE_I (112-120)
     for c in NONMAR_idx
         for r in 1:NR
-            tem = sum(TRADE[c,1,r,d] for d in 1:NR)
+            tem = 0.0
+            @inbounds for d in 1:NR; tem += TRADE[c,1,r,d]; end
             sc = tem > 0 ? MAKE_I_cd[c,r] / tem : 1.0
-            for d in 1:NR
+            @inbounds for d in 1:NR
                 TRADE[c,1,r,d] *= sc
                 for m in MAR_idx_full
                     TRADMAR[c,1,m,r,d] *= sc
@@ -76,10 +84,11 @@ function ras_balance!(reg2::Dict{String,Any})
 
     # 1c. Scale TRADE(imp) to IMPORT (122-133)
     for c in 1:NC, r in 1:NR
-        tem = sum(TRADE[c,2,r,d] for d in 1:NR)
+        tem = 0.0
+        @inbounds for d in 1:NR; tem += TRADE[c,2,r,d]; end
         @assert !(tem == 0 && IMPORT_cr[c,r] != 0) "IMPORT non-zero but TRADE=0: c=$c r=$r"
         sc = tem > 0 ? IMPORT_cr[c,r] / tem : 1.0
-        for d in 1:NR
+        @inbounds for d in 1:NR
             TRADE[c,2,r,d] *= sc
             for m in MAR_idx_full
                 TRADMAR[c,2,m,r,d] *= sc
@@ -89,36 +98,40 @@ function ras_balance!(reg2::Dict{String,Any})
 
     # 1d. Scale TRADMAR to MARGINS_U (135-142)
     for c in 1:NC, s in 1:NS, m in MAR_idx_full, d in 1:NR
-        tem = sum(TRADMAR[c,s,m,:,d])
+        tem = 0.0
+        @inbounds for r in 1:NR; tem += TRADMAR[c,s,m,r,d]; end
         sc = tem > 0 ? MARGINS_U[c,s,m,d] / tem : 1.0
-        for r in 1:NR
+        @inbounds for r in 1:NR
             TRADMAR[c,s,m,r,d] *= sc
         end
     end
 
     # 1e. Scale SUPPMAR to TRADMAR_CS (144-157)
     for m in MAR_idx_full, r in 1:NR, d in 1:NR
-        tcs = sum(TRADMAR[c,s,m,r,d] for c in 1:NC, s in 1:NS)
-        tem = sum(SUPPMAR[m,r,d,p] for p in 1:NR)
+        tcs = 0.0; tem = 0.0
+        @inbounds for c in 1:NC, s in 1:NS; tcs += TRADMAR[c,s,m,r,d]; end
+        @inbounds for p in 1:NR; tem += SUPPMAR[m,r,d,p]; end
         @assert !(tem == 0 && tcs != 0) "SUPPMAR=0 but TRADMAR_CS>0"
         sc = tem > 0 ? tcs / tem : 1.0
-        for p in 1:NR
+        @inbounds for p in 1:NR
             SUPPMAR[m,r,d,p] *= sc
         end
     end
 
     # 1f. Scale TRADE to BASIC_U (159-172)
     for c in 1:NC, s in 1:NS, d in 1:NR
-        tem = sum(TRADE[c,s,:,d])
+        tem = 0.0
+        @inbounds for r in 1:NR; tem += TRADE[c,s,r,d]; end
         @assert !(tem == 0 && BASIC_U[c,s,d] != 0) "TRADE sum zero but BASIC_U>0: c=$c s=$s d=$d"
         sc = tem > 0 ? BASIC_U[c,s,d] / tem : 1.0
-        for r in 1:NR
+        @inbounds for r in 1:NR
             TRADE[c,s,r,d] *= sc
             for m in MAR_idx_full
                 TRADMAR[c,s,m,r,d] *= sc
             end
         end
     end
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 2 — raslin: bi-proportional RAS adjustment
@@ -131,7 +144,8 @@ function ras_balance!(reg2::Dict{String,Any})
 
         # Check TRADE sum vs BASIC_U
         for c in 1:NC, s in 1:NS, d in 1:NR
-            tem = sum(TRADE[c,s,:,d])
+            tem = 0.0
+            @inbounds for r in 1:NR; tem += TRADE[c,s,r,d]; end
             err = abs(tem - BASIC_U[c,s,d])
             max_err = max(max_err, err)
             if tem > 0 && BASIC_U[c,s,d] > 0
@@ -147,7 +161,8 @@ function ras_balance!(reg2::Dict{String,Any})
 
         # TRADE(imp) vs IMPORT
         for c in 1:NC, r in 1:NR
-            tem = sum(TRADE[c,2,r,d] for d in 1:NR)
+            tem = 0.0
+            @inbounds for d in 1:NR; tem += TRADE[c,2,r,d]; end
             if tem > 0 && IMPORT_cr[c,r] > 0
                 sc = IMPORT_cr[c,r] / tem
                 for d in 1:NR
@@ -162,7 +177,8 @@ function ras_balance!(reg2::Dict{String,Any})
         # TRADE(dom,nonmar) + SUPPMAR(mar) vs MAKE_I
         for c in NONMAR_idx
             for r in 1:NR
-                tem = sum(TRADE[c,1,r,d] for d in 1:NR)
+                tem = 0.0
+                @inbounds for d in 1:NR; tem += TRADE[c,1,r,d]; end
                 if tem > 0 && MAKE_I_cd[c,r] > 0
                     sc = MAKE_I_cd[c,r] / tem
                     for d in 1:NR
@@ -176,8 +192,10 @@ function ras_balance!(reg2::Dict{String,Any})
         end
         for m in MAR_idx_full
             for r in 1:NR
-                dom_sum = sum(TRADE[m,1,r,d] for d in 1:NR)
-                supp_sum = sum(SUPPMAR[m,rr,d,r] for rr in 1:NR, d in 1:NR)
+                dom_sum = 0.0
+                @inbounds for d in 1:NR; dom_sum += TRADE[m,1,r,d]; end
+                supp_sum = 0.0
+                @inbounds for rr in 1:NR, d in 1:NR; supp_sum += SUPPMAR[m,rr,d,r]; end
                 tem = dom_sum + supp_sum
                 if tem > 0 && MAKE_I_cd[m,r] > 0
                     sc = MAKE_I_cd[m,r] / tem
@@ -185,7 +203,7 @@ function ras_balance!(reg2::Dict{String,Any})
                         TRADE[m,1,r,d] *= sc
                     end
                     for rr in 1:NR, d in 1:NR, p in 1:NR
-                        SUPPMAR[m,rr,d,p] *= sc  # simplified — exact would only scale p=r
+                        SUPPMAR[m,rr,d,p] *= sc
                     end
                 end
             end
@@ -193,7 +211,8 @@ function ras_balance!(reg2::Dict{String,Any})
 
         # TRADMAR vs MARGINS_U
         for c in 1:NC, s in 1:NS, m in MAR_idx_full, d in 1:NR
-            tem = sum(TRADMAR[c,s,m,:,d])
+            tem = 0.0
+            @inbounds for r in 1:NR; tem += TRADMAR[c,s,m,r,d]; end
             if tem > 0 && MARGINS_U[c,s,m,d] > 0
                 sc = MARGINS_U[c,s,m,d] / tem
                 for r in 1:NR
@@ -204,8 +223,9 @@ function ras_balance!(reg2::Dict{String,Any})
 
         # SUPPMAR vs TRADMAR_CS
         for m in MAR_idx_full, r in 1:NR, d in 1:NR
-            tcs = sum(TRADMAR[c,s,m,r,d] for c in 1:NC, s in 1:NS)
-            tem = sum(SUPPMAR[m,r,d,p] for p in 1:NR)
+            tcs = 0.0; tem = 0.0
+            @inbounds for c in 1:NC, s in 1:NS; tcs += TRADMAR[c,s,m,r,d]; end
+            @inbounds for p in 1:NR; tem += SUPPMAR[m,r,d,p]; end
             if tem > 0 && tcs > 0
                 sc = tcs / tem
                 for p in 1:NR

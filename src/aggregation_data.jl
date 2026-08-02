@@ -128,3 +128,38 @@ const SEC_MAP_185_to_25 = [
     # 177–185 OthServices
     25, 25, 25, 25, 25, 25, 25, 25, 25,
 ]
+
+"""
+34 → 6 region aggregation for the Phase-1 validation model.
+
+Collapses the 34 provinces of `REG` (see prepare_sets.jl) into 6 island groups.
+This shrinks the levels model from ~2.4M variables to ~80k — inside the regime
+where Ipopt+MUMPS already factors cleanly — so the levels equations can be
+validated against a benchmark solve before tackling full-scale factorization.
+
+The 6 island groups:
+ 1  Sumatra      — NAD, SumUt, SumBar, RiauProv, KepRi, Jambi, SumSel, BaBel, Bengkulu, Lampung  (REG 1–10)
+ 2  Java         — DKI, JaBar, Banten, JaTeng, DIY, JaTim                                          (REG 11–16)
+ 3  Kalimantan   — KalBar, KalTeng, KalSel, KalTim, KalUt                                          (REG 17–21)
+ 4  Sulawesi     — SulUt, Gorontalo, SulTeng, SulaSel, SulBar, SulTra                              (REG 22–27)
+ 5  BaliNusa     — Bali, NTB, NTT                                                                  (REG 28–30)
+ 6  MalukuPapua  — Maluku, MalUt, PapuaBar, PapuaProv                                              (REG 31–34)
+"""
+const REG6 = [
+    "Sumatra",
+    "Java",
+    "Kalimantan",
+    "Sulawesi",
+    "BaliNusa",
+    "MalukuPapua",
+]
+
+# REG_MAP_34_to_6[i] = island-group index (1-6) for REG[i]
+const REG_MAP_34_to_6 = [
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,   # 1–10  Sumatra
+    2, 2, 2, 2, 2, 2,               # 11–16 Java
+    3, 3, 3, 3, 3,                  # 17–21 Kalimantan
+    4, 4, 4, 4, 4, 4,               # 22–27 Sulawesi
+    5, 5, 5,                        # 28–30 BaliNusa
+    6, 6, 6, 6,                     # 31–34 MalukuPapua
+]

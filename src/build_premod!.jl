@@ -97,22 +97,46 @@ function build_premod!(pstras::Dict{String,Any},
     end
 
     # ── Dynamic data (279-357) ──────────────────────────────────────────────
-    # CAPSTOK, DPRC, RNORMAL, GROTREND, QRATIO, ALPHA, RORADJ, GRETEXP
-    # These come from CAPDAT / national.har — extract from elast dict
-    NATCAPSTOK  = ones(T, NI)   # placeholders
-    NATDPRC     = fill(0.08, NI)
-    NATRNORMAL  = fill(0.1, NI)
-    NATGROTREND = fill(0.05, NI)
-    NATQRATIO   = fill(4.0, NI)
-    NATALPHA    = fill(5.0, NI)
-    NATRORADJ   = fill(0.8, NI)
-    NATGRETEXP  = fill(0.15, NI)
-    NATEMPRAT   = 1.0
-    NATELASTWAGE = 0.5
+    # CAPSTOK, DPRC, RNORMAL, GROTREND, QRATIO, ALPHA, RORADJ, GRETEXP.
+    # DPRC/TARG/TFRO/QRAT/ALFA/RADJ/REXP are REAL headers in national.har and are
+    # now forwarded through `elast` (see build_reg0!.jl); the `fill(...)` values
+    # below are only the fallback when a header is missing, matching TERM.TAB's
+    # own documented defaults (DPRC "i.e. 0.08", QRATIO "i.e. 4", RORADJ "eg 0.8",
+    # ALPHA = 5.0 via its `Formula (initial)`, ELASTWAGE "i.e. 0.5").
+    _natvec(h, default) = begin
+        if haskey(elast, h)
+            v = vec(Float64.(elast[h] isa NamedArray ? parent(elast[h]) : elast[h]))
+            length(v) == NI ? v : fill(length(v) >= 1 ? v[1] : default, NI)
+        else
+            fill(default, NI)
+        end
+    end
+    NATDPRC     = _natvec("DPRC", 0.08)
+    NATRNORMAL  = _natvec("TARG", 0.10)
+    NATGROTREND = _natvec("TFRO", 0.05)
+    NATQRATIO   = _natvec("QRAT", 4.0)
+    NATALPHA    = _natvec("ALFA", 5.0)
+    NATRORADJ   = _natvec("RADJ", 0.8)
+    NATGRETEXP  = _natvec("REXP", 0.15)
+    NATEMPRAT   = 1.0        # EMPN/EMPR absent from this dataset; 1.0 = on trend
+    NATELASTWAGE = 0.5       # ELWN/ELWG absent; TERM.TAB's own "i.e. 0.5"
 
     NATV1CAP_i = zeros(T, NI)
     for i in 1:NI
         NATV1CAP_i[i] = sum(V1CAP[i,d] for d in 1:NR)
+    end
+
+    # CAPSTOK (header "STOC") is genuinely absent from this dataset, so it must
+    # be derived rather than invented. Capital stock = capital rental / gross
+    # rate of return, i.e. CAPSTOK = CAP / RNORMAL. This makes the benchmark
+    # GROSSRET = CAP/CAPSTOK equal RNORMAL exactly — the steady-state condition
+    # ORANIGRD assumes initially (actual return = normal return), which is also
+    # what makes the Excerpt 51 investment rule start from balance. The previous
+    # `NATCAPSTOK = ones(NI)` placeholder gave a capital stock of 1 currency unit
+    # per industry and hence an absurd GROSSRET.
+    NATCAPSTOK = zeros(T, NI)
+    for i in 1:NI
+        NATCAPSTOK[i] = NATRNORMAL[i] > 1e-10 ? NATV1CAP_i[i] / NATRNORMAL[i] : 0.0
     end
 
     CAPSTOK_id  = zeros(T, NI, NR)
@@ -242,6 +266,7 @@ function build_premod!(pstras::Dict{String,Any},
         "1LND" => V1LND,
         "SLAB" => SIGMA1LAB,
         "P028" => SIGMA1PRIM,
+        "P015" => ARMSIGMA,
         "SGDD" => SIGMADOMDOM,
         "SMAR" => SIGMAMAR,
         "PO01" => POP,

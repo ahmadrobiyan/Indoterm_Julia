@@ -77,123 +77,136 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     JuMP.set_attribute(m, "print_level", 0)
 
     # ── %-change variables (lowercase ≡ 100 × d(log(X))) ──────────
-    # Prices (Excerpt 4, 6)
-    @variable(m, pdom[1:na, 1:nr])
-    @variable(m, pimp[1:na, 1:nr])
-    @variable(m, phi)
-    @variable(m, pfimp[1:na])
-    @variable(m, pbasic[1:na, 1:ns, 1:nr])
+    # Prices (Excerpt 4, 6) — multiplicative price/index variables, benchmark=1,
+    # bounded away from 0 since several equations take log() of them directly.
+    @variable(m, pdom[1:na, 1:nr] >= 1e-6)
+    @variable(m, pimp[1:na, 1:nr] >= 1e-6)
+    @variable(m, phi >= 1e-6)
+    @variable(m, pfimp[1:na] >= 1e-6)
+    @variable(m, pbasic[1:na, 1:ns, 1:nr] >= 1e-6)
 
     # Purchaser prices (Excerpt 7)
-    @variable(m, puse[1:na, 1:ns, 1:nr])
-    @variable(m, tuser[1:na, 1:ns, 1:nu, 1:nr])
-    @variable(m, tuser_ud[1:na, 1:ns])
-    @variable(m, tuser_su[1:na, 1:nr])
-    @variable(m, tuser_sud[1:na])
-    @variable(m, ppur[1:na, 1:ns, 1:nu, 1:nr])
-    @variable(m, ppur_s[1:na, 1:nu, 1:nr])
+    @variable(m, puse[1:na, 1:ns, 1:nr] >= 1e-6)
+    @variable(m, tuser[1:na, 1:ns, 1:nu, 1:nr] >= 1e-6)
+    @variable(m, tuser_ud[1:na, 1:ns] >= 1e-6)
+    @variable(m, tuser_su[1:na, 1:nr] >= 1e-6)
+    @variable(m, tuser_sud[1:na] >= 1e-6)
+    @variable(m, ppur[1:na, 1:ns, 1:nu, 1:nr] >= 1e-6)
+    @variable(m, ppur_s[1:na, 1:nu, 1:nr] >= 1e-6)
 
-    # Armington (Excerpt 8)
-    @variable(m, phou[1:na, 1:nr])
-    @variable(m, pinvest[1:na, 1:nr])
-    @variable(m, xint[1:na, 1:ns, 1:na, 1:nr])
-    @variable(m, xhou[1:na, 1:ns, 1:nr])
-    @variable(m, xinv[1:na, 1:ns, 1:nr])
-    @variable(m, xint_s[1:na, 1:na, 1:nr])
-    @variable(m, xhou_s[1:na, 1:nr])
-    @variable(m, xinv_s[1:na, 1:nr])
+    # Armington (Excerpt 8) — xint*/xhou*/xinv* are genuine quantities
+    # (benchmark = own data value), nonnegative.
+    @variable(m, phou[1:na, 1:nr] >= 1e-6)
+    @variable(m, pinvest[1:na, 1:nr] >= 1e-6)
+    @variable(m, xint[1:na, 1:ns, 1:na, 1:nr] >= 0)
+    @variable(m, xhou[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xinv[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xint_s[1:na, 1:na, 1:nr] >= 0)
+    @variable(m, xhou_s[1:na, 1:nr] >= 0)
+    @variable(m, xinv_s[1:na, 1:nr] >= 0)
 
     # Intermediate (Excerpt 9)
-    @variable(m, atot[1:na, 1:nr])
-    @variable(m, aint_s[1:na, 1:na, 1:nr])
-    @variable(m, bint_scd[1:na])
-    @variable(m, bint_s[1:na, 1:na, 1:nr])
-    @variable(m, pint[1:na, 1:nr])
+    @variable(m, atot[1:na, 1:nr] >= 1e-6)
+    @variable(m, aint_s[1:na, 1:na, 1:nr] >= 1e-6)
+    @variable(m, bint_scd[1:na] >= 1e-6)
+    @variable(m, bint_s[1:na, 1:na, 1:nr] >= 1e-6)
+    @variable(m, pint[1:na, 1:nr] >= 1e-6)
 
     # Labour (Excerpt 10)
-    @variable(m, xlab[1:na, 1:no, 1:nr])
-    @variable(m, plab[1:na, 1:no, 1:nr])
-    @variable(m, xlab_o[1:na, 1:nr])
-    @variable(m, plab_o[1:na, 1:nr])
-    @variable(m, wlab_o[1:na, 1:nr])
+    @variable(m, xlab[1:na, 1:no, 1:nr] >= 0)
+    @variable(m, plab[1:na, 1:no, 1:nr] >= 1e-6)
+    @variable(m, xlab_o[1:na, 1:nr] >= 0)
+    @variable(m, plab_o[1:na, 1:nr] >= 1e-6)
+    @variable(m, wlab_o[1:na, 1:nr] >= 1e-6)
 
     # Factor demands (Excerpt 11)
-    @variable(m, xcap[1:na, 1:nr])
-    @variable(m, pcap[1:na, 1:nr])
-    @variable(m, xlnd[1:na, 1:nr])
-    @variable(m, plnd[1:na, 1:nr])
-    @variable(m, xprim[1:na, 1:nr])
-    @variable(m, pprim[1:na, 1:nr])
-    @variable(m, alab_o[1:na, 1:nr])
-    @variable(m, acap[1:na, 1:nr])
-    @variable(m, alnd[1:na, 1:nr])
-    @variable(m, aprim[1:na, 1:nr])
-    @variable(m, wprim[1:na, 1:nr])
-    @variable(m, bprimnat)
-    @variable(m, bprim_d[1:na])
-    @variable(m, bprim[1:na, 1:nr])
-    @variable(m, blabnat)
-    @variable(m, blab_d[1:na])
-    @variable(m, blab[1:na, 1:nr])
+    @variable(m, xcap[1:na, 1:nr] >= 0)
+    @variable(m, pcap[1:na, 1:nr] >= 1e-6)
+    @variable(m, xlnd[1:na, 1:nr] >= 0)
+    @variable(m, plnd[1:na, 1:nr] >= 1e-6)
+    @variable(m, xprim[1:na, 1:nr] >= 0)
+    @variable(m, pprim[1:na, 1:nr] >= 1e-6)
+    @variable(m, alab_o[1:na, 1:nr] >= 1e-6)
+    @variable(m, acap[1:na, 1:nr] >= 1e-6)
+    @variable(m, alnd[1:na, 1:nr] >= 1e-6)
+    @variable(m, aprim[1:na, 1:nr] >= 1e-6)
+    @variable(m, wprim[1:na, 1:nr] >= 1e-6)
+    @variable(m, bprimnat >= 1e-6)
+    @variable(m, bprim_d[1:na] >= 1e-6)
+    @variable(m, bprim[1:na, 1:nr] >= 1e-6)
+    @variable(m, blabnat >= 1e-6)
+    @variable(m, blab_d[1:na] >= 1e-6)
+    @variable(m, blab[1:na, 1:nr] >= 1e-6)
 
-    # Output (Excerpt 12)
-    @variable(m, xtot[1:na, 1:nr])
-    @variable(m, ptot[1:na, 1:nr])
-    @variable(m, pvar[1:na, 1:nr])
-    @variable(m, pcst[1:na, 1:nr])
+    # Output (Excerpt 12) — xtot is a pure real-activity index (benchmark=1);
+    # ptot/pcst/pvar carry the corresponding benchmark VALUE (VTOT/VCST/VARCST)
+    # since xtot is shared across aggregates with different weight coefficients.
+    @variable(m, xtot[1:na, 1:nr] >= 1e-6)
+    @variable(m, ptot[1:na, 1:nr] >= 1e-6)
+    @variable(m, pvar[1:na, 1:nr] >= 1e-6)
+    @variable(m, pcst[1:na, 1:nr] >= 1e-6)
     @variable(m, delPTX[1:na, 1:nr])
-    @variable(m, delPTXRATE[1:na, 1:nr])
+    @variable(m, delPTXRATE[1:na, 1:nr] >= -0.99)
 
     # Trade variables (Excerpt 4, 17, 19-23)
-    @variable(m, xtrad[1:na, 1:ns, 1:nr, 1:nr])
-    @variable(m, xtrad_d[1:na, 1:ns, 1:nr])
-    @variable(m, xtrad_r[1:na, 1:ns, 1:nr])
-    @variable(m, xuse[1:na, 1:ns, 1:nr])
-    @variable(m, xint_i[1:na, 1:ns, 1:nr])
-    @variable(m, pdelivrd[1:na, 1:ns, 1:nr, 1:nr])
-    @variable(m, xcom[1:na, 1:nr])
-    @variable(m, xmake[1:na, 1:na, 1:nr])
-    @variable(m, pmake[1:na, 1:na, 1:nr])
-    @variable(m, xtradmar[1:na, 1:ns, 1:nm, 1:nr, 1:nr])
-    @variable(m, xsuppmar[1:nm, 1:nr, 1:nr, 1:nr])
-    @variable(m, xsuppmar_p[1:nm, 1:nr, 1:nr])
-    @variable(m, psuppmar_p[1:nm, 1:nr, 1:nr])
-    @variable(m, xsuppmar_d[1:nm, 1:nr, 1:nr])
-    @variable(m, xsuppmar_rd[1:nm, 1:nr])
+    @variable(m, xtrad[1:na, 1:ns, 1:nr, 1:nr] >= 0)
+    @variable(m, xtrad_d[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xtrad_r[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xuse[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xint_i[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, pdelivrd[1:na, 1:ns, 1:nr, 1:nr] >= 1e-6)
+    @variable(m, xcom[1:na, 1:nr] >= 0)
+    @variable(m, xmake[1:na, 1:na, 1:nr] >= 0)
+    @variable(m, pmake[1:na, 1:na, 1:nr] >= 1e-6)
+    @variable(m, xtradmar[1:na, 1:ns, 1:nm, 1:nr, 1:nr] >= 0)
+    @variable(m, xsuppmar[1:nm, 1:nr, 1:nr, 1:nr] >= 0)
+    @variable(m, xsuppmar_p[1:nm, 1:nr, 1:nr] >= 0)
+    @variable(m, psuppmar_p[1:nm, 1:nr, 1:nr] >= 1e-6)
+    @variable(m, xsuppmar_d[1:nm, 1:nr, 1:nr] >= 0)
+    @variable(m, xsuppmar_rd[1:nm, 1:nr] >= 0)
     @variable(m, atrad[1:na, 1:ns, 1:nr, 1:nr])
     @variable(m, atradmar[1:na, 1:ns, 1:nm, 1:nr, 1:nr])
     @variable(m, asuppmar[1:nm, 1:nr, 1:nr, 1:nr])
     @variable(m, srctwist[1:na, 1:ns, 1:nr, 1:nr])
     @variable(m, avesrctwist[1:na, 1:ns, 1:nr])
 
-    # Household (Excerpt 13) — single representative household (h=1)
-    @variable(m, nhou[1:nr])
-    @variable(m, xhoutot[1:nr])
-    @variable(m, phoutot[1:nr])
-    @variable(m, xhouhtot[1:nr])
-    @variable(m, phouhtot[1:nr])
-    @variable(m, whouhtot[1:nr])
-    @variable(m, xlux[1:na, 1:nr])
-    @variable(m, xsub[1:na, 1:nr])
-    @variable(m, wlux[1:nr])
-    @variable(m, alux[1:na, 1:nr])
-    @variable(m, asub[1:na, 1:nr])
-    @variable(m, ahou_s[1:na, 1:nr])
+    # Household (Excerpt 13) — single representative household (h=1).
+    # nhou/xhoutot/phoutot/xhouhtot/phouhtot are indices, benchmark=1;
+    # whouhtot/wlux are genuine nominal values (benchmark=HOUPUR_C/WLUX0);
+    # xlux/xsub are genuine quantities (benchmark=XLUX0/XSUB0); asub/ahou_s
+    # are indices (benchmark=1, logged directly in E_asub!/E_alux!); alux is
+    # a shifter with the nontrivial benchmark ALUX0(c,d) (see build_equations.jl).
+    @variable(m, nhou[1:nr] >= 1e-6)
+    @variable(m, xhoutot[1:nr] >= 1e-6)
+    @variable(m, phoutot[1:nr] >= 1e-6)
+    @variable(m, xhouhtot[1:nr] >= 1e-6)
+    @variable(m, phouhtot[1:nr] >= 1e-6)
+    @variable(m, whouhtot[1:nr] >= 0)
+    @variable(m, xlux[1:na, 1:nr] >= 0)
+    @variable(m, xsub[1:na, 1:nr] >= 0)
+    @variable(m, wlux[1:nr] >= 1e-6)
+    @variable(m, alux[1:na, 1:nr] >= 1e-6)
+    @variable(m, asub[1:na, 1:nr] >= 1e-6)
+    @variable(m, ahou_s[1:na, 1:nr] >= 1e-6)
 
-    # Investment / Government / Export (Excerpt 14-16)
-    @variable(m, xinvitot[1:na, 1:nr])
-    @variable(m, pinvitot[1:na, 1:nr])
-    @variable(m, xgov[1:na, 1:ns, 1:nr])
-    @variable(m, xgov_s[1:na, 1:nr])
+    # Investment / Government / Export (Excerpt 14-16). xinvitot/pinvitot are
+    # benchmark=1 indices (logged in Excerpt 15); xgov/xgov_s/xexp/xexp_s/
+    # xexpd/xinvi are genuine quantities (benchmark=own data value, XGOV0/
+    # XEXPD0/INVEST_C); xstocks/fxstocks are additive log-type (can be any
+    # sign, cf. delPTX) and stay unbounded.
+    @variable(m, xinvitot[1:na, 1:nr] >= 1e-6)
+    @variable(m, pinvitot[1:na, 1:nr] >= 1e-6)
+    @variable(m, xgov[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xgov_s[1:na, 1:nr] >= 0)
     @variable(m, fgov[1:na, 1:ns, 1:nr])
     @variable(m, fgov_s[1:na, 1:nr])
     @variable(m, fgovtot[1:nr])
     @variable(m, fgovtot2[1:nr])
     @variable(m, fgovtot3[1:nr])
     @variable(m, fgovgen)
-    @variable(m, xexp[1:na, 1:ns, 1:nr])
-    @variable(m, xexp_s[1:na, 1:nr])
-    @variable(m, xexpd[1:na, 1:nr])
+    @variable(m, xexp[1:na, 1:ns, 1:nr] >= 0)
+    @variable(m, xexp_s[1:na, 1:nr] >= 0)
+    @variable(m, xexpd[1:na, 1:nr] >= 0)
     @variable(m, pfexp[1:na, 1:nr])
     @variable(m, fqexp[1:na, 1:nr])
     @variable(m, fpexp[1:na, 1:nr])
@@ -203,7 +216,7 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     @variable(m, natfqexp)
     @variable(m, xstocks[1:na, 1:nr])
     @variable(m, fxstocks[1:na, 1:nr])
-    @variable(m, xinvi[1:na, 1:na, 1:nr])
+    @variable(m, xinvi[1:na, 1:na, 1:nr] >= 0)
 
     # Investment rule variables (Excerpt 15)
     @variable(m, gret[1:na, 1:nr])
@@ -249,6 +262,9 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     @variable(m, pfin[1:4, 1:nr])      # HOU=1, INV=2, GOV=3, EXP=4
     @variable(m, xfin[1:4, 1:nr])
     @variable(m, wfin[1:4, 1:nr])
+    @variable(m, natpfin[1:4])
+    @variable(m, natxfin[1:4])
+    @variable(m, natwfin[1:4])
     @variable(m, delXGDPEXP[1:nr, 1:9]) # 9 GDPEXPCAT categories
     @variable(m, delPGDPEXP[1:nr, 1:9])
     @variable(m, delVGDPEXP[1:nr, 1:9])
@@ -257,9 +273,9 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     @variable(m, wgdpexp[1:nr])
     @variable(m, wgdpinc[1:nr])
     @variable(m, wgdpdiff[1:nr])
-    @variable(m, xgne[1:nr])
-    @variable(m, pgne[1:nr])
-    @variable(m, wgne[1:nr])
+    @variable(m, xgne[1:nr+1])  # nr+1 = National aggregate slot
+    @variable(m, pgne[1:nr+1])
+    @variable(m, wgne[1:nr+1])
     @variable(m, delGDPINC[1:nr, 1:5])  # Land, Capital, Labour, ProdTax, ComTax
     @variable(m, delINDTAX[1:nr])
     @variable(m, delBUDG1[1:nr])
@@ -279,12 +295,13 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
     @variable(m, delTAXexp[1:na, 1:ns, 1:nr])
 
     # ── Equation Blocks ──────────────────────────────────────────
-    # Helper: SIGMADOMIMP (default 5.0)
-    sigmadomimp = fill(5.0, na)
-    sigmalab = fill(0.5, na)
-    sigmaprim = fill(0.5, na)
-    sigmaout = fill(0.5, na)
-    exp_elast = fill(2.0, na)
+    # Elasticities wired from national HAR data (see prepare_parameters.jl);
+    # fallbacks match the old hardcoded placeholders if data is unavailable.
+    sigmadomimp = haskey(params, "P015") ? params["P015"] : fill(5.0, na)
+    sigmalab    = haskey(params, "SLAB") ? params["SLAB"] : fill(0.5, na)
+    sigmaprim   = haskey(params, "P028") ? params["P028"] : fill(0.5, na)
+    sigmaout    = haskey(params, "SCET") ? params["SCET"] : fill(0.5, na)
+    exp_elast   = haskey(params, "P018") ? params["P018"] : fill(2.0, na)
 
     # ... equation blocks will be added via functions below
 
@@ -351,6 +368,7 @@ function build_model!(agg::Dict{String,Any}, params::Dict{String,Any})
         ("finv1", finv1), ("finv2", finv2),
         ("invslack", invslack), ("capslack", capslack), ("fgret", fgret),
         ("pfin", pfin), ("xfin", xfin), ("wfin", wfin),
+        ("natpfin", natpfin), ("natxfin", natxfin), ("natwfin", natwfin),
         ("delXGDPEXP", delXGDPEXP), ("delPGDPEXP", delPGDPEXP),
         ("delVGDPEXP", delVGDPEXP),
         ("xgdpexp", xgdpexp), ("pgdpexp", pgdpexp),
@@ -373,12 +391,9 @@ function build_model_full!(agg, params)
     na = size(agg["MAKE"], 1); nr = size(agg["MAKE"], 3)
     ns = 2; no = size(agg["1LAB"], 2); nm = haskey(agg, "TMAR") ? size(agg["TMAR"], 3) : 9; nu = na + 4
 
-    MAKE  = parent(agg["MAKE"]); TRADE = parent(agg["TRAD"])
+    MAKE  = parent(agg["MAKE"])
     V1LAB = parent(agg["1LAB"]); V1CAP = parent(agg["1CAP"])
     V1LND = parent(agg["1LND"]); V1PTX = haskey(agg,"1PTX") ? parent(agg["1PTX"]) : zeros(Float64, na, nr)
-    DIST  = haskey(agg,"DIST") ? parent(agg["DIST"]) : zeros(Float64, nr, nr)
-    TMAR  = haskey(agg,"TMAR") ? parent(agg["TMAR"]) : zeros(Float64, na, ns, nm, nr, nr)
-    MARS  = haskey(agg,"MARS") ? parent(agg["MARS"]) : zeros(Float64, nm, nr, nr, nr)
 
     LAB_O  = parent(params["LAB_O"]); PRIM   = parent(params["PRIM"])
     PUR_S  = parent(params["PUR_S"]); PUR_CS = parent(params["PUR_CS"])
@@ -387,28 +402,25 @@ function build_model_full!(agg, params)
     MARSHR = parent(params["MARSHR"]); MAKE_C = parent(params["MAKE_C"])
     TRADE_D = parent(params["TRADE_D"]); TRADE_R = parent(params["TRADE_R"])
 
-    sigmadomimp = fill(5.0, na); sigmalab = fill(0.5, na); sigmaprim = fill(0.5, na)
-    sigmaout = fill(0.5, na); exp_elast = fill(2.0, na)
+    sigmadomimp = haskey(params, "P015") ? params["P015"] : fill(5.0, na)
+    sigmalab    = haskey(params, "SLAB") ? params["SLAB"] : fill(0.5, na)
+    sigmaprim   = haskey(params, "P028") ? params["P028"] : fill(0.5, na)
+    exp_elast   = haskey(params, "P018") ? params["P018"] : fill(2.0, na)
 
     # ── Populate lookup-dict caches consumed by guarded equations below.
     # These were previously never called anywhere, so every equation reading
     # them via `get(..., 0.0)` silently saw zeros (e.g. plab_o/wlab_o/wprim
-    # forced to 0 through V1LAB_idx, xsuppmar_d/xsuppmar_rd through
-    # SUPPMAR_idx/SUPPMAR_D_idx, xtrad_d/xtrad_r through TRADE_idx, etc).
-    E_plab_o_setup!(na, no, nr, V1LAB)
-    TRADMAR_setup!(na, nr, ns, nm, TMAR)
-    SUPPMAR_setup!(nm, nr, MARS, DIST)
-    SUPPMAR_D_setup!(nm, nr)
-    TRADE_setup!(na, nr, ns, TRADE)
-    if haskey(params, "USE")
-        USE_IS_setup!(na, nr, ns, params["USE"])
-        USE_usc_setup!(na, nr, ns, nu, params["USE"])
-    end
+    # forced to 0 through V1LAB_idx). The Excerpt 19-23 Dict caches
+    # (TRADMAR_idx/SUPPMAR_idx/SUPPMAR_D_idx/TRADE_idx), and the equivalent
+    # V1LAB_idx cache for plab_o/wlab_o/wprim, are gone — those equations are
+    # now plain benchmark-weighted sums read directly off params, no setup
+    # step needed (the dead `E_plab_o_setup!` call that used to sit here was
+    # never actually defined — removed).
     if haskey(params, "PUR")
         PUR_src_setup!(na, nr, ns, nu, params["PUR"])
     end
-    if haskey(params, "TAX") && haskey(params, "PUR")
-        TAX_PUR_setup!(na, nr, ns, nu, params["TAX"], params["PUR"])
+    if haskey(params, "TAX") && haskey(params, "PUR") && haskey(params, "USE")
+        TAX_PUR_setup!(na, nr, ns, nu, params["TAX"], params["PUR"], params["USE"])
     end
     INVEST_setup!(na, nr, params["INVEST"])
     STOCKS_setup!(na, nr, params["STOCKS"])
@@ -424,26 +436,26 @@ function build_model_full!(agg, params)
     # ── Excerpt 8: Armington ─────────────────────────────────────
     E_ppur_s!(m, vars, na, nr, ns, nu, params)
     E_phou!(m, vars, na, nr)
-    E_xint!(m, vars, na, nr, ns, sigmadomimp)
-    E_xhou!(m, vars, na, nr, ns, sigmadomimp)
-    E_xinv!(m, vars, na, nr, ns, sigmadomimp)
+    E_xint!(m, vars, na, nr, ns, sigmadomimp, params)
+    E_xhou!(m, vars, na, nr, ns, sigmadomimp, params)
+    E_xinv!(m, vars, na, nr, ns, sigmadomimp, params)
 
     # ── Excerpt 9: Intermediate ──────────────────────────────────
     E_aint_s!(m, vars, na, nr)
-    E_xint_s!(m, vars, na, nr)
+    E_xint_s!(m, vars, na, nr, params)
     E_pint!(m, vars, na, nr, params)
 
     # ── Excerpt 10: Labour ───────────────────────────────────────
-    E_xlab!(m, vars, na, nr, no, sigmalab)
+    E_xlab!(m, vars, na, nr, no, sigmalab, params)
     E_plab_o!(m, vars, na, nr, no, params)
     E_wlab_o!(m, vars, na, nr, no, params)
 
     # ── Excerpt 11: Factor demands ───────────────────────────────
-    E_xlab_o!(m, vars, na, nr, sigmaprim)
-    E_pcap!(m, vars, na, nr, sigmaprim)
-    E_plnd!(m, vars, na, nr, sigmaprim)
+    E_xlab_o!(m, vars, na, nr, sigmaprim, params)
+    E_pcap!(m, vars, na, nr, sigmaprim, params)
+    E_plnd!(m, vars, na, nr, sigmaprim, params)
     E_pprim!(m, vars, na, nr, no, params)
-    E_xprim!(m, vars, na, nr)
+    E_xprim!(m, vars, na, nr, params)
     E_aprim!(m, vars, na, nr)
     E_alab_o!(m, vars, na, nr)
     E_wprim!(m, vars, na, nr, no, params)
@@ -455,16 +467,16 @@ function build_model_full!(agg, params)
     E_ptot!(m, vars, na, nr, params)
 
     # ── Excerpt 13: Household ────────────────────────────────────
-    E_xsub!(m, vars, na, nr)
-    E_xlux!(m, vars, na, nr)
-    E_xhouh_s_agg!(m, vars, na, nr, params)
-    E_alux!(m, vars, na, nr, params)
     E_asub!(m, vars, na, nr, params)
+    E_alux!(m, vars, na, nr, params)
+    E_xsub!(m, vars, na, nr, params)
+    E_xlux!(m, vars, na, nr)
+    E_xhouh_s_agg!(m, vars, na, nr)
     E_wlux!(m, vars, na, nr, params)
     E_phouhtot!(m, vars, na, nr, params)
-    E_whouhtot!(m, vars, na, nr)
-    E_xhoutot!(m, vars, na, nr, params)
-    E_phoutot!(m, vars, na, nr, params)
+    E_whouhtot!(m, vars, na, nr, params)
+    E_xhoutot!(m, vars, na, nr)
+    E_phoutot!(m, vars, na, nr)
 
     # ── Excerpt 14: Investment demands ───────────────────────────
     E_xinvi!(m, vars, na, nr, params)
@@ -474,29 +486,29 @@ function build_model_full!(agg, params)
 
     # ── Excerpt 15: Investment rule ──────────────────────────────
     E_gret!(m, vars, na, nr)
-    E_xinvitot!(m, vars, na, nr)
+    E_xinvitot!(m, vars, na, nr, params)
     E_ggro!(m, vars, na, nr)
     E_fgret!(m, vars, na, nr)
     E_finv2!(m, vars, na, nr)
 
     # ── Excerpt 16: Government / Export / Stocks ─────────────────
-    E_xgov!(m, vars, na, nr, ns)
-    E_xgov_s!(m, vars, na, nr, ns, params)
+    E_xgov!(m, vars, na, nr, ns, params)
+    E_xgov_s!(m, vars, na, nr, ns)
     E_fgovtot2!(m, vars, na, nr)
     E_fgovtot3!(m, vars, na, nr)
     E_pfexp!(m, vars, na, nr)
-    E_xexpd!(m, vars, na, nr, exp_elast)
+    E_xexpd!(m, vars, na, nr, exp_elast, params)
     E_xexp!(m, vars, na, nr, ns)
-    E_xexp_s!(m, vars, na, nr, ns, params)
+    E_xexp_s!(m, vars, na, nr, ns)
     E_xstocks!(m, vars, na, nr)
 
     # ── Excerpt 17: Total regional demand ────────────────────────
-    E_xint_i!(m, vars, na, nr, ns, params)
+    E_xint_i!(m, vars, na, nr, ns)
     E_xuse!(m, vars, na, nr, ns, params)
 
     # ── Excerpt 19: Delivering goods (margins) ────────────────────
     E_pdelivrd!(m, vars, na, nr, ns, nm, params)
-    E_xtradmar_na!(m, vars, na, nr, ns, nm)
+    E_xtradmar_na!(m, vars, na, nr, ns, nm, params)
 
     # ── Excerpt 20: Regional sourcing ────────────────────────────
     E_puse!(m, vars, na, nr, ns, params)
@@ -504,22 +516,22 @@ function build_model_full!(agg, params)
     E_xtrad!(m, vars, na, nr, ns, params)
 
     # ── Excerpt 21: Margin supply ────────────────────────────────
-    E_xsuppmar_p!(m, vars, na, nr, ns, nm, params)
+    E_xsuppmar_p!(m, vars, na, nr, ns, nm)
     E_psuppmar_p!(m, vars, na, nr, nm, params)
-    E_xsuppmar!(m, vars, na, nr, nm)
-    E_xsuppmar_d!(m, vars, na, nr, ns, nm, params)
-    E_xsuppmar_rd!(m, vars, na, nr, ns, nm, params)
+    E_xsuppmar!(m, vars, na, nr, nm, params)
+    E_xsuppmar_d!(m, vars, na, nr, ns, nm)
+    E_xsuppmar_rd!(m, vars, na, nr, nm)
 
     # ── Excerpt 22: MAKE / CET ───────────────────────────────────
-    E_xmake!(m, vars, na, nr, sigmaout, params)
+    E_xmake!(m, vars, na, nr, params)
     E_xtotA_B!(m, vars, na, nr, params)
-    E_xcomA_B!(m, vars, na, nr, params)
-    E_pmake!(m, vars, na, nr)
+    E_xcomA_B!(m, vars, na, nr)
+    E_pmake!(m, vars, na, nr, params)
 
     # ── Excerpt 23: Market clearing ──────────────────────────────
-    E_xtrad_d!(m, vars, na, nr, ns, params)
-    E_xtrad_r!(m, vars, na, nr, ns, params)
-    E_pdomA_sum!(m, vars, na, nr)
+    E_xtrad_d!(m, vars, na, nr, ns)
+    E_xtrad_r!(m, vars, na, nr, ns)
+    E_pdomA_sum!(m, vars, na, nr, nm, params)
 
     # ── Excerpt 24: Final demand aggregates ──────────────────────
     E_pfin!(m, vars, na, nr, nu, params)
@@ -527,7 +539,10 @@ function build_model_full!(agg, params)
     E_xfinb!(m, vars, na, nr, params)
     E_xfinc!(m, vars, na, nr, params)
     E_xfind!(m, vars, na, nr, ns, params)
-    E_wfin!(m, vars, nr)
+    E_wfin!(m, vars, na, nr, params)
+    E_natpfin!(m, vars, na, nr, params)
+    E_natxfin!(m, vars, na, nr, params)
+    E_natwfin!(m, vars, na, nr, params)
 
     # ── Excerpt 26: Commodity tax revenues ───────────────────────
     E_delTAXint!(m, vars, na, nr, ns, params)
@@ -571,15 +586,23 @@ function build_model_full!(agg, params)
     E_delXGDPEXPa_setup!(m, vars, na, nr, params)
     E_delXGDPEXPb!(m, vars, na, nr, params)
     E_delXGDPEXPc!(m, vars, na, nr, ns, params)
+    E_delXGDPEXPd!(m, vars, na, nr, nm, params)
+    E_delXGDPEXPe!(m, vars, na, nr, ns, params)
+    E_delXGDPEXPf!(m, vars, na, nr, ns, params)
     E_xgdpexp!(m, vars, nr, params)
     E_delPGDPEXPa!(m, vars, na, nr, nu, params)
     E_delPGDPEXPb!(m, vars, na, nr, params)
     E_delPGDPEXPc!(m, vars, na, nr, ns, params)
+    E_delPGDPEXPd!(m, vars, na, nr, nm, params)
+    E_delPGDPEXPe!(m, vars, na, nr, ns, params)
+    E_delPGDPEXPf!(m, vars, na, nr, ns, params)
     E_pgdpexp!(m, vars, nr, params)
     E_wgdpexp!(m, vars, nr)
     E_wgdpdiff!(m, vars, nr)
     E_xgne!(m, vars, nr, params)
     E_pgne!(m, vars, nr, params)
+    E_xgneB!(m, vars, nr, params)
+    E_pgneB!(m, vars, nr, params)
     E_wgne!(m, vars, nr)
     E_delINDTAX!(m, vars, nr)
     E_delBUDG1!(m, vars, nr)
@@ -592,8 +615,25 @@ function build_model_full!(agg, params)
     E_realwage!(m, vars, na, nr, no)
 
     # ── Household closure (Excerpt 39) ───────────────────────────
-    E_fhou!(m, vars, na, nr, ns, nu)
-    E_fhou2!(m, vars, na, nr, ns, nu)
+    E_fhou!(m, vars, na, nr, ns, nu, params)
+    E_fhou2!(m, vars, na, nr, ns, nu, params)
+    # E_natfhou! is NOT here: it needs NatMacro, so it runs after build_macros!.
+
+    # ── Dynamic extension (Excerpts 50-54, Step 6) ───────────────
+    # No-op unless prepare_parameters! derived the dynamic coefficients. Under
+    # the base static closure this block is a passive satellite (faccum/finv4/
+    # delfwage absorb) and is benchmark-consistent, so it does not disturb
+    # benchmark replication — see build_dynamics!.jl.
+    build_dynamics!(m, vars, na, nr, no, params)
+
+    # ── Macro reporting (Excerpts 31-32, MainMacro/NatMacro) ─────
+    # Defines NatMacro("GDPPI"), the target of TERM.CMF's active numeraire swap.
+    # Every entry equals an existing bmk=1 index, so the block is
+    # benchmark-consistent and keeps the system square — see build_macros!.jl.
+    build_macros!(m, vars, na, nr, ns, params)
+
+    # Excerpt 39's last equation, deferred to here because it is the one equation
+    # in that block written in terms of NatMacro (TERM.TAB:2053).
     E_natfhou!(m, vars, na, nr, ns, nu, params)
 
     return m, vars

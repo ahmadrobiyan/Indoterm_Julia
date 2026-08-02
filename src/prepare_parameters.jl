@@ -23,6 +23,7 @@ function prepare_parameters!(agg::Dict{String,Any})
 
     SLAB   = haskey(agg,"SLAB") ? vec(parent(agg["SLAB"])) : zeros(T, na)
     P028   = haskey(agg,"P028") ? vec(parent(agg["P028"])) : zeros(T, na)
+    P015   = haskey(agg,"P015") ? vec(parent(agg["P015"])) : fill(5.0, na)
     SGDD   = haskey(agg,"SGDD") ? vec(parent(agg["SGDD"])) : zeros(T, na)
     SMAR_v = haskey(agg,"SMAR") ? vec(parent(agg["SMAR"])) : zeros(T, nm)
     PO01   = haskey(agg,"PO01") ? vec(parent(agg["PO01"])) : zeros(T, nr)
@@ -42,7 +43,11 @@ function prepare_parameters!(agg::Dict{String,Any})
     # ── LAB_O: total labour bill ──────────────────────────────
     LAB_O = zeros(T, na, nr)
     for i in 1:na, d in 1:nr
-        LAB_O[i,d] = sum(V1LAB[i,o,d] for o in 1:no)
+        acc = 0.0
+        @inbounds for o in 1:no
+            acc += V1LAB[i,o,d]
+        end
+        LAB_O[i,d] = acc
     end
     p["LAB_O"] = LAB_O
     p["CAP"]  = V1CAP
@@ -71,6 +76,47 @@ function prepare_parameters!(agg::Dict{String,Any})
     PRIMCOST = cat(V1LND, LAB_O, V1CAP; dims=ndims(V1LND)+1)  # na×nr×3
     p["PRIMCOST"] = PRIMCOST
 
+    # ── Levels-form CES calibration (Excerpt 10-11): labour composition
+    # and labour/capital/land factor nests. Calibrated once here at the
+    # benchmark (P=1, Q=value-flow convention) so build_model!.jl's CES
+    # equations reproduce the benchmark data by construction — see
+    # ces_calibrate() in ces_helper.jl and PLAN.md's "Course correction".
+    ALPHA_LAB = zeros(T, na, no, nr)
+    GAMMA_LAB = ones(T, na, nr)
+    for i in 1:na, d in 1:nr
+        αv, γv = ces_calibrate(V1LAB[i, :, d], SLAB[i], LAB_O[i, d])
+        ALPHA_LAB[i, :, d] = αv
+        GAMMA_LAB[i, d] = γv
+    end
+    p["ALPHA_LAB"] = ALPHA_LAB
+    p["GAMMA_LAB"] = GAMMA_LAB
+
+    # Factor nest order matches E_pprim!'s RHS: [LAB_O, CAP, LND]
+    ALPHA_FAC = zeros(T, na, 3, nr)
+    GAMMA_FAC = ones(T, na, nr)
+    for i in 1:na, d in 1:nr
+        αv, γv = ces_calibrate([LAB_O[i, d], V1CAP[i, d], V1LND[i, d]], P028[i], PRIM[i, d])
+        ALPHA_FAC[i, :, d] = αv
+        GAMMA_FAC[i, d] = γv
+    end
+    p["ALPHA_FAC"] = ALPHA_FAC
+    p["GAMMA_FAC"] = GAMMA_FAC
+
+    # ── MAKE/CET calibration (Excerpt 22): each multi-product industry i
+    # transforms its total output xtot[i,d] (benchmark=1) into commodity-
+    # specific outputs xmake[c,i,d] (benchmark=MAKE[c,i,d]) via a CET nest.
+    # A negative sigma passed to ces_calibrate/ces gives the CET dual (see
+    # ces_helper.jl), so SCET (a positive output-mix elasticity) is negated.
+    ALPHA_MAKE = zeros(T, na, na, nr)   # ALPHA_MAKE[i, c, d]
+    GAMMA_MAKE = ones(T, na, nr)
+    for i in 1:na, d in 1:nr
+        αv, γv = ces_calibrate(MAKE[:, i, d], -SCET[i], 1.0)
+        ALPHA_MAKE[i, :, d] = αv
+        GAMMA_MAKE[i, d] = γv
+    end
+    p["ALPHA_MAKE"] = ALPHA_MAKE
+    p["GAMMA_MAKE"] = GAMMA_MAKE
+
     # ── MAKE aggregates ────────────────────────────────────────
     MAKE_C = zeros(T, na, nr)
     MAKE_I = zeros(T, na, nr)
@@ -83,7 +129,11 @@ function prepare_parameters!(agg::Dict{String,Any})
 
     MAKE_D = zeros(T, na, na)
     for c in 1:na, i in 1:na
-        MAKE_D[c,i] = sum(MAKE[c,i,d] for d in 1:nr)
+        acc = 0.0
+        @inbounds for d in 1:nr
+            acc += MAKE[c,i,d]
+        end
+        MAKE_D[c,i] = acc
     end
     p["MAKE_D"] = MAKE_D
 
@@ -123,7 +173,10 @@ function prepare_parameters!(agg::Dict{String,Any})
     BASSHR  = zeros(T, na, ns, nr, nr)
     MARSHR  = zeros(T, na, ns, nm, nr, nr)
     for c in 1:na, s in 1:ns, r in 1:nr, d in 1:nr
-        tm_sum = sum(TMAR[c,s,m,r,d] for m in 1:nm)
+        tm_sum = 0.0
+        @inbounds for m in 1:nm
+            tm_sum += TMAR[c,s,m,r,d]
+        end
         DELIVRD[c,s,r,d] = TRADE[c,s,r,d] + tm_sum
         dv = DELIVRD[c,s,r,d]
         BASSHR[c,s,r,d] = dv > 0 ? TRADE[c,s,r,d] / dv : 0.0
@@ -132,6 +185,9 @@ function prepare_parameters!(agg::Dict{String,Any})
         end
     end
     p["MAKE"] = MAKE
+    p["TRADE"] = TRADE
+    p["TMAR"] = TMAR
+    p["MARS"] = MARS
     p["DELIVRD"] = DELIVRD
     p["BASSHR"] = BASSHR
     p["MARSHR"] = MARSHR
@@ -139,15 +195,37 @@ function prepare_parameters!(agg::Dict{String,Any})
     # ── DELIVRD_R (Excerpt 20) ─────────────────────────────────
     DELIVRD_R = zeros(T, na, ns, nr)
     for c in 1:na, s in 1:ns, d in 1:nr
-        DELIVRD_R[c,s,d] = sum(DELIVRD[c,s,r,d] for r in 1:nr)
+        acc = 0.0
+        @inbounds for r in 1:nr
+            acc += DELIVRD[c,s,r,d]
+        end
+        DELIVRD_R[c,s,d] = acc
     end
     p["DELIVRD_R"] = DELIVRD_R
     p["SGDD"] = SGDD
 
+    # ── Elasticities wired from national HAR data (Excerpt 6-27 sigmas) ────
+    # Raw HAR header codes, matching the "SGDD" naming precedent above:
+    #   SLAB=SIGMALAB (labour CES), P028=SIGMAPRIM (primary factor CES),
+    #   P015=SIGMADOMIMP/ARMSIGMA (Armington dom/imp CES),
+    #   SMAR=SIGMAMAR (margin substitution), PO01=POP (population),
+    #   SCET=SIGMAOUT (CET output-mix), P018=EXP_ELAST (export demand)
+    p["SLAB"] = SLAB
+    p["P028"] = P028
+    p["P015"] = P015
+    p["SMAR"] = SMAR_v
+    p["PO01"] = PO01
+    p["SCET"] = SCET
+    p["P018"] = P018
+
     # ── Margin aggregates (Excerpt 21) ─────────────────────────
     TRADMAR_CS = zeros(T, nm, nr, nr)
     for m in 1:nm, r in 1:nr, d in 1:nr
-        TRADMAR_CS[m,r,d] = sum(TMAR[c,s,m,r,d] for c in 1:na, s in 1:ns)
+        acc = 0.0
+        @inbounds for c in 1:na, s in 1:ns
+            acc += TMAR[c,s,m,r,d]
+        end
+        TRADMAR_CS[m,r,d] = acc
     end
     p["TRADMAR_CS"] = TRADMAR_CS
 
@@ -165,7 +243,11 @@ function prepare_parameters!(agg::Dict{String,Any})
 
     SUPPMAR_RD = zeros(T, nm, nr)
     for m in 1:nm, p_ in 1:nr
-        SUPPMAR_RD[m,p_] = sum(SUPPMAR_D[m,r,p_] for r in 1:nr)
+        acc = 0.0
+        @inbounds for r in 1:nr
+            acc += SUPPMAR_D[m,r,p_]
+        end
+        SUPPMAR_RD[m,p_] = acc
     end
     p["SUPPMAR_RD"] = SUPPMAR_RD
 
@@ -187,7 +269,11 @@ function prepare_parameters!(agg::Dict{String,Any})
 
         PUR_CS = zeros(T, nu, nr)
         for u in 1:nu, d in 1:nr
-            PUR_CS[u,d] = sum(PUR_S[c,u,d] for c in 1:na)
+            acc = 0.0
+            @inbounds for c in 1:na
+                acc += PUR_S[c,u,d]
+            end
+            PUR_CS[u,d] = acc
         end
         p["PUR_CS"] = PUR_CS
 
@@ -198,9 +284,28 @@ function prepare_parameters!(agg::Dict{String,Any})
         end
         p["SRCSHR"] = SRCSHR
 
+        # ── Levels-form CES calibration (Excerpt 8): Armington dom/imp
+        # nest, one per (c,u,d) triple, using benchmark purchaser values
+        # PUR[c,:,u,d] as the benchmark "quantities" (P=1 convention).
+        # ces_calibrate returns (zeros, 1.0) wherever PUR_S==0 (no flow),
+        # which the equation-writing code below skips via `any(αv .> 0)`.
+        ALPHA_ARMINT = zeros(T, na, ns, nu, nr)
+        GAMMA_ARMINT = ones(T, na, nu, nr)
+        for c in 1:na, u in 1:nu, d in 1:nr
+            αv, γv = ces_calibrate(PUR[c, :, u, d], P015[c], PUR_S[c, u, d])
+            ALPHA_ARMINT[c, :, u, d] = αv
+            GAMMA_ARMINT[c, u, d] = γv
+        end
+        p["ALPHA_ARMINT"] = ALPHA_ARMINT
+        p["GAMMA_ARMINT"] = GAMMA_ARMINT
+
         PUR_D = zeros(T, na, ns, nu)
         for c in 1:na, s in 1:ns, u in 1:nu
-            PUR_D[c,s,u] = sum(PUR[c,s,u,d] for d in 1:nr)
+            acc = 0.0
+            @inbounds for d in 1:nr
+                acc += PUR[c,s,u,d]
+            end
+            PUR_D[c,s,u] = acc
         end
         p["PUR_D"] = PUR_D
 
@@ -233,7 +338,11 @@ function prepare_parameters!(agg::Dict{String,Any})
             IMPSHR[c,d] = LOCUSE_S[c,d] > 0 ? LOCUSE[c,2,d] / LOCUSE_S[c,d] : 0.0
         end
         for c in 1:na
-            LOCUSE_SD[c] = sum(LOCUSE_S[c,d] for d in 1:nr)
+            acc = 0.0
+            @inbounds for d in 1:nr
+                acc += LOCUSE_S[c,d]
+            end
+            LOCUSE_SD[c] = acc
         end
         p["LOCUSE_S"] = LOCUSE_S
         p["LOCUSE_SD"] = LOCUSE_SD
@@ -256,7 +365,11 @@ function prepare_parameters!(agg::Dict{String,Any})
 
         HOUPUR_C = zeros(T, 1, nr)
         for d in 1:nr
-            HOUPUR_C[1,d] = sum(HOUPUR[c,1,d] for c in 1:na)
+            acc = 0.0
+            @inbounds for c in 1:na
+                acc += HOUPUR[c,1,d]
+            end
+            HOUPUR_C[1,d] = acc
         end
         p["HOUPUR_C"] = HOUPUR_C
 
@@ -272,7 +385,10 @@ function prepare_parameters!(agg::Dict{String,Any})
         end
         EPSAVE = zeros(T, 1, nr)
         for d in 1:nr
-            esum = sum(EPSH[c,1,d] * BUDGSHR[c,1,d] for c in 1:na)
+            esum = 0.0
+            @inbounds for c in 1:na
+                esum += EPSH[c,1,d] * BUDGSHR[c,1,d]
+            end
             EPSAVE[1,d] = esum
             if esum > 0
                 for c in 1:na
@@ -293,6 +409,38 @@ function prepare_parameters!(agg::Dict{String,Any})
         p["BLUX"] = BLUX
         p["SLUX"] = SLUX
 
+        # XSUB0/XLUX0/WLUX0/ALUX0 (Excerpt 13, levels benchmark decomposition):
+        # ELES splits benchmark household purchases HOUPUR(c,d) into a
+        # "subsistence" part (1-BLUX)*HOUPUR and a "luxury"/supernumerary part
+        # BLUX*HOUPUR. WLUX0(d) is the aggregate benchmark supernumerary
+        # expenditure and ALUX0(c,d) is alux's true (non-unity) benchmark
+        # share XLUX0(c,d)/WLUX0(d) — see build_equations.jl's E_xsub!/E_xlux!
+        # header comment for the full derivation.
+        XSUB0 = zeros(T, na, 1, nr)
+        XLUX0 = zeros(T, na, 1, nr)
+        for c in 1:na, d in 1:nr
+            XSUB0[c,1,d] = (1.0 - BLUX[c,1,d]) * HOUPUR[c,1,d]
+            XLUX0[c,1,d] = BLUX[c,1,d] * HOUPUR[c,1,d]
+        end
+        p["XSUB0"] = XSUB0
+        p["XLUX0"] = XLUX0
+
+        WLUX0 = zeros(T, 1, nr)
+        for d in 1:nr
+            acc = 0.0
+            @inbounds for c in 1:na
+                acc += XLUX0[c,1,d]
+            end
+            WLUX0[1,d] = acc
+        end
+        p["WLUX0"] = WLUX0
+
+        ALUX0 = zeros(T, na, 1, nr)
+        for c in 1:na, d in 1:nr
+            ALUX0[c,1,d] = WLUX0[1,d] > 0 ? XLUX0[c,1,d] / WLUX0[1,d] : 0.0
+        end
+        p["ALUX0"] = ALUX0
+
         # HOUSHR (single household: identity)
         HOUPUR_H = zeros(T, na, nr)
         HOUSHR = zeros(T, na, 1, nr)
@@ -308,13 +456,34 @@ function prepare_parameters!(agg::Dict{String,Any})
         u_gov = na + 3
         VMAINUSE = zeros(T, na, ns, 4, nr)
         for c in 1:na, s in 1:ns, d in 1:nr
-            int_sum = sum(USE[c,s,i,d] for i in 1:na)
+            int_sum = 0.0
+            @inbounds for i in 1:na
+                int_sum += USE[c,s,i,d]
+            end
             VMAINUSE[c,s,1,d] = int_sum  # INT
             VMAINUSE[c,s,2,d] = USE[c,s,u_hou,d]  # HOU
             VMAINUSE[c,s,3,d] = USE[c,s,u_inv,d]  # INV
             VMAINUSE[c,s,4,d] = USE[c,s,u_gov,d]  # GOV
         end
         p["VMAINUSE"] = VMAINUSE
+
+        # XGOV0 / XEXPD0 (Excerpt 16 levels benchmarks)
+        u_exp = na + 4
+        XGOV0 = zeros(T, na, ns, nr)
+        for c in 1:na, s in 1:ns, d in 1:nr
+            XGOV0[c,s,d] = PUR[c,s,u_gov,d]
+        end
+        p["XGOV0"] = XGOV0
+
+        XEXPD0 = zeros(T, na, nr)
+        for c in 1:na, d in 1:nr
+            acc = 0.0
+            @inbounds for s in 1:ns
+                acc += PUR[c,s,u_exp,d]
+            end
+            XEXPD0[c,d] = acc
+        end
+        p["XEXPD0"] = XEXPD0
 
         # VARCST / VCST / VTOT / COSTMAT (Excerpt 12)
         VARCST = zeros(T, na, nr)
@@ -333,9 +502,17 @@ function prepare_parameters!(agg::Dict{String,Any})
             ptx_val = V1PTX !== nothing ? V1PTX[i,d] : 0.0
             VTOT[i,d] = VCST[i,d] + ptx_val
             PTXRATE[i,d] = VCST[i,d] > 0 ? ptx_val / VCST[i,d] : 0.0
-            COSTMAT_arr[i,1,d] = sum(BSMR[c,1,i,d] for c in 1:na)  # IntDom
-            COSTMAT_arr[i,2,d] = sum(BSMR[c,2,i,d] for c in 1:na)  # IntImp
-            COSTMAT_arr[i,3,d] = sum(UTAX[c,s,i,d] for c in 1:na, s in 1:ns)  # ComTax
+            acc1 = 0.0; acc2 = 0.0; acc3 = 0.0
+            @inbounds for c in 1:na
+                acc1 += BSMR[c,1,i,d]
+                acc2 += BSMR[c,2,i,d]
+            end
+            @inbounds for c in 1:na, s in 1:ns
+                acc3 += UTAX[c,s,i,d]
+            end
+            COSTMAT_arr[i,1,d] = acc1  # IntDom
+            COSTMAT_arr[i,2,d] = acc2  # IntImp
+            COSTMAT_arr[i,3,d] = acc3  # ComTax
             COSTMAT_arr[i,4,d] = LAB_O[i,d]   # LAB
             COSTMAT_arr[i,5,d] = V1CAP[i,d]   # CAP
             COSTMAT_arr[i,6,d] = V1LND[i,d]   # LND
@@ -351,9 +528,15 @@ function prepare_parameters!(agg::Dict{String,Any})
         CAP_D = zeros(T, na)
         for i in 1:na
             ptx_val_i = V1PTX !== nothing ? V1PTX[i,:] : zeros(T, nr)
-            NATVTOT[i] = sum(VCST[i,d] + ptx_val_i[d] for d in 1:nr)
-            LAB_OD[i]  = sum(LAB_O[i,d] for d in 1:nr)
-            CAP_D[i]   = sum(V1CAP[i,d] for d in 1:nr)
+            acc1 = 0.0; acc2 = 0.0; acc3 = 0.0
+            @inbounds for d in 1:nr
+                acc1 += VCST[i,d] + ptx_val_i[d]
+                acc2 += LAB_O[i,d]
+                acc3 += V1CAP[i,d]
+            end
+            NATVTOT[i] = acc1
+            LAB_OD[i]  = acc2
+            CAP_D[i]   = acc3
         end
         p["NATVTOT"] = NATVTOT
         p["LAB_OD"]  = LAB_OD
@@ -375,7 +558,11 @@ function prepare_parameters!(agg::Dict{String,Any})
     # ── Factor aggregates (Excerpt 27) ─────────────────────────
     LAB_I = zeros(T, no, nr)
     for o in 1:no, d in 1:nr
-        LAB_I[o,d] = sum(V1LAB[i,o,d] for i in 1:na)
+        acc = 0.0
+        @inbounds for i in 1:na
+            acc += V1LAB[i,o,d]
+        end
+        LAB_I[o,d] = acc
     end
     p["LAB_I"] = LAB_I
 
@@ -383,9 +570,17 @@ function prepare_parameters!(agg::Dict{String,Any})
     LND_I = zeros(T, nr)
     CAP_I = zeros(T, nr)
     for d in 1:nr
-        LAB_IO[d] = sum(LAB_I[o,d] for o in 1:no)
-        LND_I[d]  = sum(V1LND[i,d] for i in 1:na)
-        CAP_I[d]  = sum(V1CAP[i,d] for i in 1:na)
+        acc1 = 0.0; acc2 = 0.0; acc3 = 0.0
+        @inbounds for o in 1:no
+            acc1 += LAB_I[o,d]
+        end
+        @inbounds for i in 1:na
+            acc2 += V1LND[i,d]
+            acc3 += V1CAP[i,d]
+        end
+        LAB_IO[d] = acc1
+        LND_I[d]  = acc2
+        CAP_I[d]  = acc3
     end
     p["LAB_IO"] = LAB_IO
     p["LND_I"]  = LND_I
@@ -400,7 +595,11 @@ function prepare_parameters!(agg::Dict{String,Any})
     # Sum-over-industry-and-region labour aggregates (Excerpt 27, "_id" family)
     LAB_ID = zeros(T, no)
     for o in 1:no
-        LAB_ID[o] = sum(LAB_I[o,d] for d in 1:nr)
+        acc = 0.0
+        @inbounds for d in 1:nr
+            acc += LAB_I[o,d]
+        end
+        LAB_ID[o] = acc
     end
     p["LAB_ID"] = LAB_ID
 
@@ -430,11 +629,23 @@ function prepare_parameters!(agg::Dict{String,Any})
     # ── Regional macro aggregates (Excerpt 31) ─────────────────
     TRADE_CR = zeros(T, ns, nr)
     for s in 1:ns, d in 1:nr
-        TRADE_CR[s,d] = sum(TRADE_R[c,s,d] for c in 1:na)
+        acc = 0.0
+        @inbounds for c in 1:na
+            acc += TRADE_R[c,s,d]
+        end
+        TRADE_CR[s,d] = acc
     end
     p["TRADE_CR"]   = TRADE_CR
     p["IMPUSED_C"]  = [TRADE_CR[2,d] for d in 1:nr]
-    p["IMPLANDED_C"] = [sum(TRADE_D[c,2,d] for c in 1:na) for d in 1:nr]
+    IMPLANDED_C = zeros(T, nr)
+    for d in 1:nr
+        acc = 0.0
+        @inbounds for c in 1:na
+            acc += TRADE_D[c,2,d]
+        end
+        IMPLANDED_C[d] = acc
+    end
+    p["IMPLANDED_C"] = IMPLANDED_C
 
     # ── GDP income & expenditure breakdowns (Excerpts 28-29) ───
     if haskey(p, "PUR_CS")
@@ -445,13 +656,29 @@ function prepare_parameters!(agg::Dict{String,Any})
             GDPINCSUM[d,1] = p["LND_I"][d]
             GDPINCSUM[d,2] = p["LAB_IO"][d]
             GDPINCSUM[d,3] = p["CAP_I"][d]
-            GDPINCSUM[d,4] = V1PTX !== nothing ? sum(V1PTX[i,d] for i in 1:na) : 0.0
+            acc = 0.0
+            if V1PTX !== nothing
+                @inbounds for i in 1:na
+                    acc += V1PTX[i,d]
+                end
+            end
+            GDPINCSUM[d,4] = acc
             if BSMR !== nothing && UTAX !== nothing
-                tax_sum = sum(UTAX[c,s,u,d] for c in 1:na, s in 1:ns, u in 1:nu)
+                tax_sum = 0.0
+                @inbounds for c in 1:na, s in 1:ns, u in 1:nu
+                    tax_sum += UTAX[c,s,u,d]
+                end
                 GDPINCSUM[d,5] = tax_sum
             end
         end
-        GDPINC = [sum(GDPINCSUM[d,:]) for d in 1:nr]
+        GDPINC = zeros(T, nr)
+        for d in 1:nr
+            acc = 0.0
+            @inbounds for k in 1:5
+                acc += GDPINCSUM[d,k]
+            end
+            GDPINC[d] = acc
+        end
         p["GDPINCSUM"] = GDPINCSUM
         p["GDPINC"]    = GDPINC
 
@@ -465,18 +692,47 @@ function prepare_parameters!(agg::Dict{String,Any})
             GDPEXPSUM[d,1] = PUR_CS_p[u_hou_i,d]  # HOU
             GDPEXPSUM[d,2] = PUR_CS_p[u_inv_i,d]  # INV
             GDPEXPSUM[d,3] = PUR_CS_p[u_gov_i,d]  # GOV
-            GDPEXPSUM[d,4] = VSTOK !== nothing ? sum(VSTOK[i,d] for i in 1:na) : 0.0  # STOCKS
+            acc = 0.0
+            if VSTOK !== nothing
+                @inbounds for i in 1:na
+                    acc += VSTOK[i,d]
+                end
+            end
+            GDPEXPSUM[d,4] = acc  # STOCKS
             GDPEXPSUM[d,5] = PUR_CS_p[u_exp_i,d]  # EXP
-            GDPEXPSUM[d,6] = -sum(p["TRADE_D"][c,2,d] for c in 1:na)  # Imports
-            GDPEXPSUM[d,7] = sum(c -> p["TRADE_D"][c,1,d] - p["TRDIAG"][c,1,d], 1:na)  # RExports
-            GDPEXPSUM[d,8] = -sum(c -> p["TRADE_R"][c,1,d] - p["TRDIAG"][c,1,d], 1:na)  # RImports
+            acc = 0.0
+            @inbounds for c in 1:na
+                acc += p["TRADE_D"][c,2,d]
+            end
+            GDPEXPSUM[d,6] = -acc  # Imports
+            acc = 0.0
+            @inbounds for c in 1:na, s in 1:ns
+                acc += p["TRADE_D"][c,s,d] - p["TRDIAG"][c,s,d]
+            end
+            GDPEXPSUM[d,7] = acc  # RExports
+            acc = 0.0
+            @inbounds for c in 1:na, s in 1:ns
+                acc += p["TRADE_R"][c,s,d] - p["TRDIAG"][c,s,d]
+            end
+            GDPEXPSUM[d,8] = -acc  # RImports
             netmar = 0.0
             for m in 1:nm
-                netmar += sum(p["SUPPMAR_D"][m,r,d] - p["SUPPMAR_P"][m,r,d] for r in 1:nr)
+                acc = 0.0
+                @inbounds for r in 1:nr
+                    acc += p["SUPPMAR_D"][m,r,d] - p["SUPPMAR_P"][m,r,d]
+                end
+                netmar += acc
             end
             GDPEXPSUM[d,9] = netmar  # NetMar
         end
-        GDPEXP = [sum(GDPEXPSUM[d,:]) for d in 1:nr]
+        GDPEXP = zeros(T, nr)
+        for d in 1:nr
+            acc = 0.0
+            @inbounds for k in 1:9
+                acc += GDPEXPSUM[d,k]
+            end
+            GDPEXP[d] = acc
+        end
         p["GDPEXPSUM"] = GDPEXPSUM
         p["GDPEXP"]    = GDPEXP
     end
@@ -512,8 +768,11 @@ function prepare_parameters!(agg::Dict{String,Any})
 
         EXPSHR_arr = zeros(T, na, nr)
         for c in 1:na, r in 1:nr
-            rowdem_sum = sum(ROWDEM[c,r,d] for d in 1:nr)
-            EXPSHR_arr[c,r] = rowdem_sum / (0.001 + MAKE_I[c,r])
+            acc = 0.0
+            @inbounds for d in 1:nr
+                acc += ROWDEM[c,r,d]
+            end
+            EXPSHR_arr[c,r] = acc / (0.001 + MAKE_I[c,r])
         end
         p["EXPSHR"] = EXPSHR_arr
     end
@@ -545,6 +804,74 @@ function prepare_parameters!(agg::Dict{String,Any})
         end
         p["CHECKB"] = CHECKB
         p["CKRATB"] = CKRATB
+    end
+
+    # ── Dynamic extension coefficients (Excerpts 50-51, 54) ────────────────
+    # Only derived when the dynamic headers survived aggregation; the static
+    # model never reads them. Names mirror TERM.TAB's own coefficient names,
+    # except ALPHA → ALPHA_DYN to avoid colliding with the CES ALPHA_* shares.
+    if haskey(agg, "STOC") && haskey(p, "INVEST_C")
+        CAPSTOK = parent(agg["STOC"])
+        DPRC    = parent(agg["DPRC"])
+        RNORMAL = parent(agg["TARG"])
+        GROTREND= parent(agg["TFRO"])
+        QRATIO  = parent(agg["QRAT"])
+        ALPHA_D = parent(agg["ALFA"])
+        RORADJ  = parent(agg["RADJ"])
+        INVEST_C = p["INVEST_C"]; CAPv = p["CAP"]
+
+        p["CAPSTOK"] = CAPSTOK; p["DPRC"] = DPRC; p["RNORMAL"] = RNORMAL
+        p["GROTREND"] = GROTREND; p["QRATIO"] = QRATIO
+        p["ALPHA_DYN"] = ALPHA_D; p["RORADJ"] = RORADJ
+
+        GROSSRET = zeros(T, na, nr)   # PK/PI
+        GROSSGRO = zeros(T, na, nr)   # investment/capital ratio
+        GROMAX   = zeros(T, na, nr)   # max investment/capital ratio
+        GRETEXP  = zeros(T, na, nr)   # expected gross rate of return
+        MCOEFF   = zeros(T, na, nr)   # mratio coefficient
+        CAPADD   = zeros(T, na, nr)   # addition to CAPSTOK from last year's investment
+        for i in 1:na, d in 1:nr
+            cs = CAPSTOK[i,d]
+            GROSSRET[i,d] = cs > 1e-10 ? CAPv[i,d] / cs : 0.0
+            GROSSGRO[i,d] = cs > 1e-10 ? INVEST_C[i,d] / cs : 0.0
+            GROMAX[i,d]   = QRATIO[i,d] * GROTREND[i,d]
+            # TERM.TAB floors DENOM at 0.001 to avoid raising a negative number
+            # to a fractional power (its own comment, Excerpt 51).
+            den = GROSSGRO[i,d] > 1e-10 ? (GROMAX[i,d] / GROSSGRO[i,d]) - 1.0 : 0.001
+            den <= 0 && (den = 0.001)
+            GRETEXP[i,d] = ALPHA_D[i,d] > 1e-10 ?
+                RNORMAL[i,d] * ((QRATIO[i,d] - 1.0) / den)^(1.0 / ALPHA_D[i,d]) : 0.0
+            MCOEFF[i,d] = GROMAX[i,d] > 1e-10 ?
+                ALPHA_D[i,d] * (1.0 - GROSSGRO[i,d] / GROMAX[i,d]) : 0.0
+            CAPADD[i,d] = INVEST_C[i,d] - DPRC[i,d] * cs
+        end
+        p["GROSSRET"] = GROSSRET; p["GROSSRET0"] = copy(GROSSRET)
+        p["GROSSGRO"] = GROSSGRO; p["GROMAX"] = GROMAX
+        p["GRETEXP"]  = GRETEXP;  p["GRETEXP0"] = copy(GRETEXP)
+        p["MCOEFF"]   = MCOEFF;   p["CAPADD"]  = CAPADD
+        p["CAPSTOK_OLDP"] = copy(CAPSTOK)
+        CAPSTOK_D = zeros(T, na)
+        INVEST_CD = zeros(T, na)
+        for i in 1:na
+            acc1 = 0.0; acc2 = 0.0
+            @inbounds for d in 1:nr
+                acc1 += CAPSTOK[i,d]
+                acc2 += INVEST_C[i,d]
+            end
+            CAPSTOK_D[i] = acc1
+            INVEST_CD[i] = acc2
+        end
+        p["CAPSTOK_D"] = CAPSTOK_D
+        p["INVEST_CD"] = INVEST_CD
+    end
+    if haskey(agg, "EMPR")
+        EMPRAT = parent(agg["EMPR"]); ELASTWAGE = parent(agg["ELWG"])
+        # TERM.TAB indexes both by OCC only; the pipeline carries them OCC×REG,
+        # so collapse to OCC with a plain mean (they are intensive rates).
+        p["EMPRAT"]    = ndims(EMPRAT)    == 2 ? vec(sum(EMPRAT, dims=2))    ./ nr : EMPRAT
+        p["ELASTWAGE"] = ndims(ELASTWAGE) == 2 ? vec(sum(ELASTWAGE, dims=2)) ./ nr : ELASTWAGE
+        p["EMPRAT0"]   = copy(p["EMPRAT"])
+        p["WAGERATE"]  = ones(T, length(p["EMPRAT"]))   # index rebased each period
     end
 
     return p

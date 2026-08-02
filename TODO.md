@@ -11,7 +11,106 @@
       `build_model!.jl`, `prepare_parameters.jl`, the `PLAN.md`/`TODO.md` updates, the P021/FRISCH
       fix, and `test/run_full_model.jl`. Not yet pushed to `origin/master` — ask before pushing.
 
-## Step 5 completion (core equations) — current focus
+## CURRENT FOCUS (2026-07-25) — read this first
+
+Everything below this section is historical unless linked from here. Full rationale in `PLAN.md`
+("Gate #5c RESOLVED").
+
+**Where we are: the levels model is VERIFIED CORRECT and solves at 25×6.**
+
+- Benchmark relative residual **1.86e-9**; Newton converges in **1 iteration / 2.2 s**.
+- Equilibrated Jacobian is **full rank** (was deficient by 637).
+- Solver changed **Ipopt → sparse Newton** (Ipopt hangs at `iter 0` on a square system — zero
+  degrees of freedom is degenerate for an interior-point optimizer).
+- The model is now **naturally square from `src/` alone**: squaring collapsed from
+  "pin 157 + delete 108 dead rows" to **pin 1, delete 0** — and that one pin is `natfhou`, the
+  stub already documented under gate 5b.
+
+**Next, in order:**
+
+- [x] ~~**Gate 5c-i — productionise the solve.**~~ — **done 2026-07-25.** New
+      `src/solve_newton!.jl` (`solve_newton!` → `NewtonResult`), exported; `Project.toml` gains
+      `SparseArrays`/`LinearAlgebra`; `test/solve_benchmark_6reg.jl` rewritten to use it and now
+      passes unaided: square 88,599=88,599, converged in 1 iter (42.8 s), scaled `‖F‖∞` 1.11e-9,
+      max relative Δ vs benchmark 5.4e-7. Squaring is defensive and automatic (pins orphan vars —
+      today just `natfhou`; deletes dead rows — today none) and errors out with a diagnostic rather
+      than solving a non-square system silently.
+- [ ] **First real economic test** — run `TERM.CMF`'s `Shock blabnat = -3` and sanity-check signs and
+      magnitudes. Unblocked now that the null space is gone (shock results would previously have been
+      non-unique). **This is the active task.** Note `initialize_model!` already accepts `shocks`.
+- [ ] **Price homogeneity test** — shock only the numéraire; nominal variables move, real ones must
+      not. This is the natural check that the remaining closure/numéraire wiring is right.
+- [ ] **Re-test at full 34 regions.** Needs Phase 3 condensation first: 2.4M variables, and the
+      sparse QR fallback will not scale as-is. Profile whether `lu` alone suffices now that the
+      Jacobian is full rank — it may, which would make Phase 3 cheaper than planned.
+- [ ] Fold the `OMIT_NAMES` / zero-flow-guard patterns into a short "porting TABLO faithfully" note
+      in `AGENTS.md` if more instances turn up (two classes found so far, both now fixed).
+
+**Do not re-litigate:** the *solver* choice (Ipopt hung 56 min at `iter 0`, measured), or the
+correctness of the equations *that are present*.
+
+### Excerpt coverage audit (2026-07-25) — what is and is not translated
+
+`TERM.TAB` has **55 excerpts**. Audited each against `src/`:
+
+| group | excerpts | status |
+|---|---|---|
+| Sets, data reads, sign checks, flow updates | 1, 2, 3, 5 | ✅ handled by the pipeline (`prepare_sets`/`read_data`/`build_*`) |
+| Core model | 4, 6-29 | ✅ translated (levels) |
+| Regional macro reporting — **partial** | 31 | ⚠️ parameters only (`TRADE_CR`, `IMPUSED_C`, `IMPLANDED_C`); `ximps`/`ximpused`/`pimpused`/`ximplanded`/`pimplanded` and `MainMacro`/`SelMacro` were **missing** |
+| National macro aggregation | 32 | ⚠️ **missing** (`NatMacro`, `contMainMacro`, `shrBoT`, `shrBoTnom`, `shrBoTnom2`, `finvgdp`) |
+| Labour/household closure, GDP | 35, 38-41, 44 | ✅ translated |
+| Condensation actions | 49 | n/a — a Phase 3 *lever*, not equations |
+| Dynamic extension | 50, 51, 53, 54 | ✅ translated (`build_dynamics!.jl`) |
+| Dynamic diagnostics summary tables | 52 | ⏭️ diagnostics only, deferred |
+| District extension | 55 | ⛔ N/A — no data (see Step 6 section) |
+| **Contribution/decomposition reporting** | 30, 33, 34, 36, 37, 42, 43, 45, 46, 48 | ⏭️ **not translated** (~55 equations) |
+
+- [x] ~~**Excerpts 31-32 — `MainMacro`/`NatMacro`.**~~ — `src/build_macros!.jl`, **verified
+      2026-07-25**: square 90,460 = 90,460, converges in 1 Newton iteration, benchmark replication
+      unchanged (max relative Δ 5.42e-7). Note the *raw* residual rose 9.2e-5 → 0.146 while the
+      *scaled* one stayed 1.106e-9 — the macro equations carry ~1e7 weights, which is exactly why
+      convergence is judged on the equilibrated residual.
+      This is *not* cosmetic: `NatMacro("GDPPI")` is the target of `TERM.CMF`'s **active numeraire
+      swap** (`swap phi = Natmacro("GDPPI")`, `TERM.CMF:72`), which the port has been unable to apply
+      — `initialize_model!.jl` says so in its own docstring. Implementing it unblocks using the
+      model's real numeraire instead of leaving `phi` fixed.
+- [ ] **Apply the real numeraire swap** now that `NatMacro("GDPPI")` exists: free `phi`, fix
+      `NatMacro("GDPPI")`. Re-verify benchmark replication and then run the price-homogeneity test,
+      which is the check this swap actually matters for.
+- [ ] Excerpts 30/33/34/36/37/42/43/45/46/48 — contribution & decomposition reporting (~55 equations:
+      commodity contributions to national results, endowment/tech/tax contributions to real GDP,
+      COM/REG contributions to trade price indices, inter-regional trade reporting). Pure reporting —
+      none feeds back into the core solve, so they are safe to add incrementally. Excerpt 46 is
+      weights-only (0 equations).
+
+### Limits of the benchmark-replication proof — keep in mind for shock results
+
+Benchmark replication proves the equations **that exist** are internally consistent and correctly
+calibrated. It **cannot** detect an equation that is *economically wrong but benchmark-consistent*,
+because at a balanced benchmark SAM almost any plausible market-clearing form holds exactly. Such a
+bug only surfaces **under a shock**. Keep this in mind when the first shock results land.
+
+Two instances were flagged in earlier sessions. **Both were re-verified against `TERM.TAB` on
+2026-07-25 and are ALREADY FIXED** — the notes claiming otherwise (further down this file) are
+stale and are retained only as history:
+
+- [x] ~~`E_pdomB` missing~~ — **implemented** in `E_pdomA_sum!` (`build_equations.jl`). Margin
+      commodities use the levels form `xcom == xtrad_d + Σ xsuppmar_rd + K` with
+      `K = MAKE_I − TRADE_D − Σ SUPPMAR_RD` carrying the benchmark imbalance. Verified: at the
+      benchmark RHS collapses to `MAKE_I` (replicates), and differentiating gives
+      `MAKE_I·x̂com = TRADE_D·x̂trad_d + SUPPMAR_RD·x̂suppmar_rd` — exactly `TERM.TAB:1200-1203`.
+      Non-margins use the ratio form `xcom/MAKE_I == xtrad_d/TRADE_D`, which linearizes to
+      `x̂com = x̂trad_d` (`TERM.TAB:1196-1198`). The MAR→aggregated-COM mapping lands the 9 margins
+      on commodities 20/21/22 (Trade / Transport / InfoComm).
+- [x] ~~`xuse` purchaser-vs-basic wedge~~ — **resolved** in `E_xuse!`. Each user's
+      purchaser-valued quantity is converted to basic values by a benchmark ratio
+      (`β_u = USE_u / PUR_u`) before summing, and `xuse` enters scaled by
+      `α = USE_U / TRADE_R`: `α·xuse == Σ_u β_u·x_u`. Replicates because
+      `USE_U = USE_I + Σ USE_final`, and `xuse` keeps its `TRADE_R` (basic-value) benchmark, which is
+      what the `E_xtrad` sourcing nest expects.
+
+## Step 5 completion (core equations) — historical
 
 - [x] ~~Confirm `test/run_pipeline.jl` (Steps 0-4) still passes end-to-end on this machine~~ —
       **it failed 2026-07-22** with `MethodError: no method matching Float64(::Vector{Float64})` in
@@ -121,7 +220,7 @@
       All remaining Excerpt 49 names were already "OK" in the first pass. **Step 5's equation coverage
       against Excerpt 49 is complete** — no missing core equations identified.
 
-## Step 5b — Ipopt solve wiring
+## Step 5b — closure + solve wiring (historical; solver since changed Ipopt → Newton)
 
 - [x] ~~`initialize_model!.jl` — encode one `.cmf` closure~~ — **done.** Encodes `TERM.CMF`'s
       48-name default `Exogenous` list (42 modeled as `BASE_CLOSURE_SCALARS`/`BASE_CLOSURE_ARRAYS`,
@@ -263,14 +362,109 @@
         consecutive unrelated fixes, which would be surprising for a live wiring bug.
       Final state: **2,679 untouched free vars**, of which only `natfhou=>1` is a known,
       documented, deliberately-out-of-scope gap; everything else is confirmed real data sparsity.
-- [ ] `solve_model!.jl` — Ipopt feasibility solve (no objective), mirroring WayangJulia's
-      `set_attribute` tuning (`max_iter`, `tol`, `constr_viol_tol`, adaptive `mu_strategy`).
+- [x] ~~`solve_model!.jl` — Ipopt feasibility solve (no objective), mirroring WayangJulia's
+      `set_attribute` tuning (`max_iter`, `tol`, `constr_viol_tol`, adaptive `mu_strategy`).~~ —
+      written 2026-07-22, wired into `IndotermJulia.jl`; not yet committed. Superseded in priority by
+      the levels-conversion course correction below — revisit once `build_equations.jl` is in levels
+      form (the %-change-era `solve_model!.jl` itself needs no change, just a levels model to call it on).
+- [x] ~~Fix `initialize_model!.jl` closure-benchmark bug (all closure vars fixed at 0.0, wrong for
+      ratio-type vars).~~ — **done 2026-07-23.** `test/check_start_point.jl` (new diagnostic: evaluates
+      every constraint at the fixed/start initial point, no solver call) found 124,100/1,396,876
+      constraints evaluating to `Inf`, concentrated in `log(...)` reads of `tuser`/`ppur`/`puse`/
+      `aint_s`/`bint_scd`/`bint_s`. Root cause: 17 of 41 `TERM.CMF` closure names are ratio-type
+      (`>=1e-6`-bounded, correct benchmark `1.0`) but `initialize_model!.jl` fixed all 41 at `0.0`
+      uniformly — right for shift-type names, wrong for ratio-type ones (`log(0)=-Inf`). **Fixed**:
+      added `_is_ratio_type` helper (same `>=1e-6` convention `solve_benchmark.jl` already used for
+      free vars); closure fix now defaults to `1.0` for ratio-type, `0.0` for shift-type. Confirmed via
+      before/after `check_start_point.jl` runs: 124,100 → 0 non-finite constraints. Real Ipopt solve no
+      longer terminates `INVALID_MODEL` either.
+- [ ] **New blocker, found 2026-07-23, paused per user direction — do not resume without being asked**:
+      with the `Inf`-constraint bug fixed, `test/solve_benchmark.jl` now runs real Newton iterations but
+      fails with `MUMPS returned INFO(1) =-13 - out of memory` (5,288–38,784 MB depending on
+      `mumps_mem_percent`), ending `OTHER_ERROR`/`INFEASIBLE_POINT`. Confirmed NOT a genuine memory
+      shortage (host has ~16.68GB free; a raw Julia allocation test succeeded to 20GB cleanly).
+      Diagnosed as most likely a MUMPS-internal scaling limit (probably 32-bit integer indexing) for a
+      KKT system this large (2.4M vars / 1.4M cons). Only `Ipopt v1.15.0`+bundled MUMPS is installed —
+      no `HSL_jll`/Pardiso. Full writeup in `PLAN.md`'s "Gate #5c status detail" section. Options once
+      resumed: (a) install HSL (MA57), needs external STFC academic registration; (b) investigate/reduce
+      KKT fill-in; (c) stay paused. **User chose to pause on 2026-07-23** — awaiting further direction.
+- [ ] Recalibrate `solve_model!.jl`'s `print_level` default — documented as avoiding Ipopt's
+      full-vector per-iteration dumps at level 8, but empirically level 8 still dumps them
+      (`new vars[i]`/`curr_c[i]`/`curr_x[1][i]`/`final y_c/y_d/z_L/z_U` for all 2.4M variables),
+      producing gigabyte-scale log files. Only `print_level>=11` was assumed to do this; not true at
+      this model's scale. Low urgency, fold in whenever solver work resumes.
 - [ ] `run_model!.jl` — homotopy/warm-start driver, only if a direct solve fails to converge on a
       real shock.
 
+## Course correction (2026-07-22): levels conversion — current top priority
+
+User caught that `build_equations.jl` had silently drifted from the documented **levels formulation**
+(`PLAN.md` line 14) to a direct port of TABLO's own **%-change (Johansen)** equations (`PLAN.md` line
+417) — confirmed via the touched/untouched diagnostic (100% of the model's constraints are
+`GenericAffExpr`, impossible for a genuine nonlinear levels CGE) and by comparing against WayangJulia's
+actual source, which *did* execute the levels conversion the plan called for. Full writeup in
+`PLAN.md`'s "Course correction" section. **Decision: convert to true levels, following WayangJulia's
+methodology directly** (`ces()`/`_ces_calibrate()` helper, Principle A/B/C, log-differential auxiliary
+variables). This is now the primary line of work; everything below in this section works toward it.
+
+> **✅ THIS WHOLE SECTION IS COMPLETE (verified 2026-07-25).** The model is genuinely in levels form:
+> `src/ces_helper.jl` provides `ces`/`ces_calibrate`, the equations use nonlinear `ces(...)`/`log(...)`
+> constructions throughout, and the converted model reproduces its own benchmark to **1.86e-9**
+> relative — the real (non-trivial) replication test this conversion was undertaken to make possible.
+> Boxes below ticked retrospectively; kept for the rationale.
+
+- [x] ~~Port `ces(y, p, α, σ, γ)` and `_ces_calibrate(quantities, sigma, output)` from WayangJulia~~
+      — done, `src/ces_helper.jl:14` (`ces`) and `:38` (`ces_calibrate`).
+- [x] ~~Fold in the pre-existing elasticity-wiring gap~~ (`SLAB, P028, SMAR, PO01, SCET,
+      P018`/`P015`/`ARMSIGMA`) — done; these are wired as the `σ` inputs to the CES calibration
+      (e.g. `ALPHA_FAC`/`GAMMA_FAC` from `P028` in `prepare_parameters.jl`).
+- [x] ~~Convert Excerpts 6-12 (basic/purchaser prices, Armington CES, factor CES, zero-profit
+      costs) to levels form.~~
+- [x] ~~Convert Excerpts 13-17 (household LES demand, investment, government, export CET) to levels
+      form.~~
+- [x] ~~Convert Excerpts 19-23 (margins, regional-sourcing CES, MAKE/CET, market clearing) to levels
+      form.~~ — **done 2026-07-23.** All 18 functions rewritten against `origin/TERM.TAB` lines
+      895-1219 directly (not just the old %-change Julia port). Highlights: `E_xsuppmar_p!`,
+      `E_xsuppmar_d!`, `E_xsuppmar_rd!`, `E_xtrad_d!`, `E_xtrad_r!`, `E_xcomA_B!` all collapse to
+      plain physical-quantity sums (their fixed weights equal the summed variable's own benchmark
+      exactly — confirmed against TABLO, **not** `MARS*DIST` as the old `SUPPMAR_idx` Dict assumed);
+      the now-dead `TRADMAR_idx`/`SUPPMAR_idx`/`SUPPMAR_D_idx`/`TRADE_idx` Dict-caching machinery and
+      their `*_setup!` calls/exports were deleted. `E_xmake!` became a genuine `ces()`-based CET nest
+      (new `ALPHA_MAKE`/`GAMMA_MAKE` calibration in `prepare_parameters.jl`, negative-`SCET` CET dual
+      convention); `E_xtotA_B!` is its exact Shephard's-lemma revenue-identity dual. **Bug fix along
+      the way**: `E_xsuppmar!` had completely dropped TERM.TAB's `SIGMAMAR` CES elasticity term (was a
+      pure Leontief `xsuppmar==xsuppmar_p+asuppmar`) — restored per the real TABLO equation. Added
+      `xtradmar >= 0` bound (missed in the original bound audit — needed now that
+      `E_xtradmar_na!` reads `log(xtradmar)`), plus the other 9 bounds already flagged
+      (`xtrad`/`pdelivrd`/`xcom`/`xmake`/`pmake`/`xsuppmar`/`xsuppmar_p`/`psuppmar_p`/`xsuppmar_d`/
+      `xsuppmar_rd`). **Known gap intentionally NOT fixed (pre-existing, out of scope for this
+      conversion pass)**: TABLO splits market clearing into `E_pdomA` (NONMAR commodities only) and
+      `E_pdomB` (MAR/margin commodities: `MAKE_I*xcom == TRADE_D*xtrad_d + SUPPMAR_RD*xsuppmar_rd`,
+      TERM.TAB lines 1196-1203) — the Julia port only ever had `E_pdomA_sum!`, applied uniformly to
+      *all* commodities including margin ones. `E_pdomB` is still entirely missing. [**STALE — this
+      was FIXED in a later session; `E_pdomA_sum!` now implements both split forms. Verified against
+      `TERM.TAB:1196-1203` on 2026-07-25. See "Limits of the benchmark-replication proof" at the top
+      of this file.**] This predates the
+      levels conversion (it's a pre-existing gap in the original %-change port, not something this
+      pass rewrote from scratch), so left as-is per the "big-bang, one pass" mandate; needs a real fix
+      before trusting margin-commodity market-clearing results.
+- [x] ~~Convert Excerpts 24-29 (final-demand aggregates, tax revenue, GDP income/expenditure) to
+      levels form.~~
+- [x] ~~Convert Excerpts 27/38-39 (labour-market closure, household closure) to levels form.~~
+- [x] ~~Update `initialize_model!.jl` (start values / closure fixes need to be benchmark levels, not
+      `0.0`)~~ — done via `src/benchmark_levels.jl` + the `bmk_levels` argument to
+      `initialize_model!`, which seeds each genuine flow variable at its benchmark value-flow
+      (index/ratio variables stay 1.0, additive shifters 0.0).
+- [x] ~~Re-run the verification protocol on the converted model~~ — done 2026-07-25: benchmark
+      replication holds to **1.86e-9** relative. See "CURRENT FOCUS" at the top.
+
 ## Verification (per PLAN.md's protocol — do in this order)
 
-- [ ] **Benchmark replication**: solve with all shocks at 0 → expect ~0% change everywhere.
+- [x] ~~**Benchmark replication**: solve with all shocks at 0 → expect ~0% change everywhere.~~ —
+      **passed 2026-07-25 at 25×6.** Relative residual 1.86e-9; Newton converges in 1 iter / 2.2 s;
+      max drift off benchmark 5.4e-7. Still to repeat at full 34 regions. See the ⚠️ caveat under
+      "CURRENT FOCUS" — this test cannot detect a benchmark-consistent but economically wrong
+      equation (`E_pdomB`).
 - [ ] **Price homogeneity test**: shock only the numéraire → nominal moves, real variables don't.
 - [ ] **GDP-both-sides check**: after any shock, income-side GDP == expenditure-side GDP
       (`calculate_gdp.jl`, Step 8 — can be stubbed early just for this check).
@@ -279,9 +473,24 @@
 
 ## Step 6 — Dynamic + district extensions (after Step 5 verified)
 
-- [ ] `build_dynamics!.jl` — Excerpts 50-54 (investment rule, real-wage adjustment).
-- [ ] `build_district!.jl` — Excerpt 55 (top-down district extension; likely a WAYANG-style
-      non-feedback satellite based on its name — confirm by reading that excerpt).
+- [x] ~~`build_dynamics!.jl` — Excerpts 50-54 (investment rule, real-wage adjustment).~~ —
+      **done 2026-07-25.** `src/build_dynamics!.jl` translates Excerpt 50 (capital accumulation),
+      51 (investment rule), 53 (national dynamic reporting) and 54 (real-wage adjustment) to levels,
+      plus `update_dynamics!` for the inter-period `Update` statements a recursive multi-period
+      driver needs. Verified: system stays square (89,911 = 89,911), converges in 1 iteration, and
+      benchmark replication is unchanged (max relative Δ 5.42e-7, identical to the pre-dynamics run).
+      Under the base static closure the block is a passive satellite — `faccum`/`finv4`/`delfwage`
+      absorb — exactly as TERM.TAB's own "to switch off" note prescribes.
+- [ ] **`build_district!.jl` — Excerpt 55: NOT APPLICABLE to this dataset.** The top-down district
+      extension requires a sub-provincial layer that INDOTERM simply does not have. Excerpt 55 reads
+      `RGN` (district set), `MRGN` (district→region mapping), `SREG` (split flag), `LOCI` (local-industry
+      flag) and `MVTO` (district outputs/value-added); **none of those five headers exists** in any of
+      `national.har`, `regsupp.har` or `DISTGONE.HAR` (66 headers total, checked 2026-07-25). The
+      finest spatial unit in the data is the 34 provinces = `REG`. Writing the module now would give
+      an untestable, unrunnable stub, so it is deliberately deferred rather than faked.
+      **To enable later**: obtain district-level data providing those five headers, then implement it
+      as a non-feedback satellite computed *after* the core solve (regional industries grow at the
+      region rate; local/"municipal" industries follow local demand — see TERM.TAB:2921-3010).
 
 ## Step 8 — Reporting
 

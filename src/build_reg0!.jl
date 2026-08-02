@@ -306,6 +306,15 @@ function build_reg0!(nat::Dict{String,Any}, regsupp::Dict{String,Any})
     for h in ["P028","P018","P021","XPEL","SLAB","SCET"]
         if haskey(nat,h); elast_dict[h] = nat[h]; end
     end
+    # Step 6 dynamic-extension parameters (TERM.TAB Excerpts 50-51). These are
+    # genuinely present in national.har — DPRC (depreciation), TARG (RNORMAL,
+    # normal gross rate of return), TFRO (GROTREND, trend I/K), QRAT (QRATIO,
+    # max/trend I/K), ALFA (investment elasticity), RADJ (RORADJ, partial
+    # adjustment), REXP (GRETEXP) — but were not forwarded, so build_premod!
+    # fell back to hard-coded placeholders. Carry the real values through.
+    for h in ["DPRC","TARG","TFRO","QRAT","ALFA","RADJ","REXP"]
+        if haskey(nat,h); elast_dict[h] = nat[h]; end
+    end
 
     # ── Regional shares: floor & normalize (369-430) ───────────────────────
     DEFREGSHR_r = zeros(T, NR)

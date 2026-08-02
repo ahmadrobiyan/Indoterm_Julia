@@ -9,3 +9,4 @@ __pycache__/
 Manifest.toml
 
 data/national_data.csv
+data/cache_*.jls
