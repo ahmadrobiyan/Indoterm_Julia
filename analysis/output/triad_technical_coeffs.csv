@@ -1,0 +1,10 @@
+from,to,a_ij
+BasMetals,BasMetals,0.036796
+BasMetals,MetalMach,0.050941
+BasMetals,TranspEquip,0.014546
+MetalMach,BasMetals,0.010971
+MetalMach,MetalMach,0.071655
+MetalMach,TranspEquip,0.054516
+TranspEquip,BasMetals,0.001130
+TranspEquip,MetalMach,0.002569
+TranspEquip,TranspEquip,0.120936
