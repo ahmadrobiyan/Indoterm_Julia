@@ -1,0 +1,30 @@
+# INDOTERM-Julia gate manifest — the single source of truth for "what must pass".
+#
+# tier        : fast | integration | full | nongating
+# script      : path relative to repository root
+# verdict     : exit   -> trust the process exit code alone
+#               marker -> ALSO require a ✅ in output and forbid ❌/FAILED
+#                         (every V-gate currently PRINTS its verdict and exits 0
+#                          regardless, so exit code alone is not a valid signal;
+#                          see README "Known gap: gate verdict contracts")
+# gate        : VV_PLAN.md gate id, or '-'
+#
+# tier	script	verdict	gate	description
+fast	test/test_syntax.jl	exit	-	module parses
+fast	test/load_check.jl	exit	-	package loads
+fast	test/verify_scenario_complete.jl	marker	provenance	every .CMF Shock line has a counterpart
+integration	test/check_residual_6reg.jl	exit	-	residuals at benchmark start point
+integration	test/solve_benchmark_6reg.jl	exit	5c	benchmark solve replicates
+integration	test/gdp_report_6reg.jl	exit	8	GDP income/expenditure decomposition
+full	test/runtests.jl	exit	V7	regression suite (wraps V9 + V2)
+full	test/verify_coalprice_reference.jl	marker	V9	external validation vs draftreport.pdf
+full	test/verify_numeraire.jl	marker	V2	numeraire invariance :gdppi vs :cpi
+full	test/verify_walras_gdp.jl	marker	V1	Walras identity, nationally scoped
+full	test/verify_path_independence.jl	marker	V3	path independence, Legs A/B
+full	test/verify_multiplier.jl	marker	V5	income-side GDP decomposition
+full	test/verify_homogeneity_tol.jl	marker	9	price homogeneity of degree zero
+full	test/verify_arclength_fallback.jl	marker	7a	arclength fallback regression
+full	test/verify_swapped_closure.jl	marker	7	swapped closure solves
+# --- known-open, deliberately NOT gating (see VV_PLAN.md) ---
+nongating	test/verify_aggregation_consistency.jl	marker	V4	CLOSED as disclosed limitation
+nongating	test/verify_closure_ordering.jl	marker	V6	TIME-BOXED, unresolved

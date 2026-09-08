@@ -102,19 +102,19 @@ Script: `scratchpad/diag_matching.jl`. Check the fingerprint of unmatched constr
 ## Verification commands
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/run_pipeline_6reg.jl
+julia --project=. test/run_pipeline_6reg.jl
 ```
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/check_residual_6reg.jl
+julia --project=. test/check_residual_6reg.jl
 ```
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/solve_benchmark_6reg.jl
+julia --project=. test/solve_benchmark_6reg.jl
 ```
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/shock_blabnat_6reg.jl
+julia --project=. test/shock_blabnat_6reg.jl
 ```
 
 ## Conventions
