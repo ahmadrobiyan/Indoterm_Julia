@@ -1627,7 +1627,7 @@ correction per step → a smoke-test scenario checked for sign/magnitude plausib
 ### E (superseded). Corrected verdict (2026-07-29, measured) — the system is CONSISTENT; the step is the problem
 
 §B was wrong. Three measurements settle it, all at the *stalled* `blabnat = 0.9997` point
-(`test/diag_stall_nullspace.jl`, `test/diag_stall_direct.jl`):
+(`test/scratch/diag_stall_nullspace.jl`, `test/scratch/diag_stall_direct.jl`):
 
 | measurement | value | meaning |
 |---|---|---|
@@ -1670,7 +1670,7 @@ a step-taking failure, not an obstruction.
 and no inconsistency to repair. C5 (condensation) is not the fallback either; it addresses scale, not
 conditioning. The live question is narrower: *which* near-singular mode, and why. `σ_min`, `v_min`
 (the nearly-undetermined variables) and `u_min` (the nearly-dependent equations) are extracted by
-inverse iteration in `test/diag_stall_nearnull.jl`; the fix follows from what that block names.
+inverse iteration in `test/scratch/diag_stall_nearnull.jl`; the fix follows from what that block names.
 
 Note the §A5 line "weak-column freeze ruled out" was right for the wrong reason, and §A4's μ sweep is
 now readable as the correct instrument pointed at the correct problem: LM regularization *is* the
@@ -1712,7 +1712,7 @@ removed: at this conditioning it cannot produce a better direction than the one 
 - *"The tiny CES coefficient 3.8e-4 is a degenerate capital value share (data defect)."* **False.**
   Capital's value share is 0.112–0.818 (median 0.398) across all 150 cells at 6 regions and
   0.0999–… (median 0.393) across all 850 at 34; **zero** cells below 0.01 at either scale
-  (`test/diag_primary_shares.jl`). `0.00038` is a calibrated CES `ALPHA`, not a share.
+  (`test/scratch/diag_primary_shares.jl`). `0.00038` is a calibrated CES `ALPHA`, not a share.
 - *"Undamped Newton will converge quadratically, so the line search is the whole story."* **Also
   false, but for a reason that was a measurement error on our side.** `max|d/x|` appeared to explode
   to 574× at iteration 2 — but every "runaway" was a `delTAXint`/`delPTX`/`delTAXhou` *additive*
@@ -1815,7 +1815,7 @@ merit reduction (`red > 0.1` → `Δ ← max(2·moved, 2Δ)`; `red > 0.01` → h
 still falls (2.66e-9 → 2.53e-9) while `‖F‖∞` slowly *rises* (1.69e-5 → 1.82e-5) — the L2 merit
 is shaving many small rows at the cost of the largest one. Either 1.7e-5 is a genuine floor in
 one specific row, or it is the trust-region lockout above. Gate 3 separates these; if the floor
-survives, run `test/diag_full_newton.jl` (task #19) to NAME the row carrying it. Do not theorise
+survives, run `test/scratch/diag_full_newton.jl` (task #19) to NAME the row carrying it. Do not theorise
 about which row before measuring — three prior diagnoses in this section were refuted by
 measurement.
 
@@ -1836,7 +1836,7 @@ that after iteration 8 the merit keeps falling (2.88e-9 → 2.29e-9) while ‖F�
 (1.77e-5 → 1.83e-5): the L2 merit is shaving many small rows at the largest row's expense,
 which is what a merit minimum that is **not a zero of F** looks like.
 
-**Next measurement (task #19, no theorising first):** run `test/diag_full_newton.jl` with
+**Next measurement (task #19, no theorising first):** run `test/scratch/diag_full_newton.jl` with
 `STALL_MAXIT=25` to reach the same floor under undamped Newton and print, per iteration, the
 argmax row *by name and index* plus the residual mass by equation family. That names the
 equation carrying the 1.7e-5. Only after it is named is it worth asking whether it is a
@@ -1844,7 +1844,7 @@ translation defect in that block or a genuine degeneracy of the closure.
 
 ### H. LOCALISED (2026-07-29) — 97% of the residual is ONE cell: Livestock × BaliNusa
 
-`test/diag_full_newton.jl`, `STALL_MAXIT=25` (`scratchpad/rows2.log`). Every top-5 residual
+`test/scratch/diag_full_newton.jl`, `STALL_MAXIT=25` (`scratchpad/rows2.log`). Every top-5 residual
 row, at every iteration, is index **[2,5]**:
 
 | share of ‖F‖₂² | family | variables |
@@ -1862,7 +1862,7 @@ linear algebra is exact and the oscillation is genuine nonlinearity in this one 
 `gret[2,5]` row from §F (then only "the row that vetoes the step") to the cell carrying
 essentially all remaining error.
 
-**Why this cell (`test/diag_cell25.jl`, measured).** It is the joint extreme of two ratios:
+**Why this cell (`test/scratch/diag_cell25.jl`, measured).** It is the joint extreme of two ratios:
 
 - **Fixed-factor share 0.172, rank 6 of 150** (median 0.457, max 0.818). CAP=1543.5, LND=686.0,
   LAB=10752 — the cell is 83% labour. With `xcap`/`xlnd` exogenous in the base static closure,
@@ -2005,7 +2005,7 @@ equations.
 **Consequence for the plan.** Do **not** write pseudo-arclength continuation yet. Arclength can
 trace a branch around a fold; it cannot manufacture an equilibrium beyond one, and if the fold is
 an artifact it would be sophisticated machinery aimed at the wrong target. The order is:
-(1) confirm directionality (`test/diag_fold.jl`, running: `blabnat` → 0.9997 vs → 1.0003 —
+(1) confirm directionality (`test/scratch/diag_fold.jl`, running: `blabnat` → 0.9997 vs → 1.0003 —
 one-sided fold vs symmetric obstruction); (2) apply TERM.CMF's active swaps and re-measure the
 fold location; (3) only if a fold survives a faithful closure does arclength become the answer.
 
@@ -2053,7 +2053,7 @@ So §J's question ("does the fold survive a faithful closure?") is **not yet ans
 the faithful closure cannot take even an infinitesimal step. The fold measurement at
 `blabnat* = 0.9997525` stands as a property of the *base* closure and nothing more.
 
-**Next: `test/diag_swap_bisect.jl`** applies each swap **alone** (not incrementally — an
+**Next: `test/scratch/diag_swap_bisect.jl`** applies each swap **alone** (not incrementally — an
 incremental ladder confounds the culprit with its position in the ordering) and probes with a 1e-5
 shock, which the base closure clears in 2 iterations. Prior suspicion, to be confirmed or killed
 rather than assumed: `xcap = faccum` and `finv1 = finv4` each free 150 variables against equations
@@ -2067,7 +2067,7 @@ the faithful closure is at the base year, where arclength has nothing to trace.
 
 ### L. LOCALISED — ONE scalar swap costs the conditioning, and my prior suspicion was WRONG
 
-`test/diag_swap_bisect.jl`, 2026-07-29. Each swap applied **alone** to a fresh model (not
+`test/scratch/diag_swap_bisect.jl`, 2026-07-29. Each swap applied **alone** to a fresh model (not
 incrementally — an incremental ladder confounds the culprit with its position in the ordering),
 probed with `blabnat = 0.99999`, which the base closure clears in 2 Newton iterations. Every case
 kept the benchmark at exactly `1.4260876923799515e-9`, so all eight rows below are comparable.
@@ -2094,7 +2094,7 @@ one scalar accounts for the whole §K failure. **Therefore the other five swaps 
 re-measurement is running under `EXCLUDE=houslack` (`test/verify_swapped_closure.jl` gained an
 `EXCLUDE` env knob for exactly this).
 
-**Mechanism (predicted, being measured by `test/diag_houslack_null.jl`).** `TERM.TAB:2047-2050`:
+**Mechanism (predicted, being measured by `test/scratch/diag_houslack_null.jl`).** `TERM.TAB:2047-2050`:
 
 ```
 E_fhou  (all,h,HOU)(all,d,DST)  whouhtot(h,d) = wlab_io(d) + fhou(h,d)  + houslack;
@@ -2121,7 +2121,7 @@ with `houslack` in each.
 magnitude before cancellation), so case B either exposes a second mechanism or shows the remaining
 dependency is near-exact rather than exact.
 
-**Measured (`test/diag_houslack_null.jl`, same day). Case A: PROVEN EXACTLY.**
+**Measured (`test/scratch/diag_houslack_null.jl`, same day). Case A: PROVEN EXACTLY.**
 
 ```
 houslack = shrBoTnom2 ALONE     ‖J·v‖∞ = 0.0        ‖ |J|·|v| ‖∞ = 2.0   ratio = 0.0
@@ -2137,7 +2137,7 @@ rather than a dead end: the residual is exactly `1.0` in six consecutive rows, i
 **ALL SIX stalls for a different reason**, and three options remain open, in decreasing
 plausibility: (a) it is merely HARD — the bisect's `maxit=20` was too small and the residual was
 still falling at 1.03e-6 when it stopped; (b) singular along a different direction; (c) genuinely
-near-singular. `test/diag_allsix_deep.jl` runs 60 iterations at a 1e-6 shock with the per-iteration
+near-singular. `test/scratch/diag_allsix_deep.jl` runs 60 iterations at a 1e-6 shock with the per-iteration
 trajectory visible, which separates (a) from (b)/(c) without writing a null-space solver on spec.
 
 **Bookkeeping caveat — RESOLVED, nothing to see.** The null run reported `83515 rows × 83516 free
@@ -2147,7 +2147,7 @@ is not caused by any swap. No under-determination.
 
 ### M. ALL SIX is NEAR-singular, not singular — and the closure question is now economic
 
-`test/diag_allsix_deep.jl`, 2026-07-29. ALL SIX at a **1e-6** shock:
+`test/scratch/diag_allsix_deep.jl`, 2026-07-29. ALL SIX at a **1e-6** shock:
 **converged, 2 iterations, ‖F‖∞ = 3.84e-9.** So option (b) is dead — there is no second exact null
 direction — and the bisect's `maxit=20` failure at a 1e-5 shock was a *radius-of-convergence*
 failure, not a rank failure.
@@ -2166,7 +2166,7 @@ therefore option (c)" — was **wrong, and the movers run refuted it**. The rati
 same class of error as the phantom "574× runaway" in §A — a ratio taken across incommensurable
 quantities — and it is worth naming twice because it has now cost two wrong verdicts.
 
-**What actually moves (`test/diag_allsix_movers.jl`).** The prediction recorded here — that the
+**What actually moves (`test/scratch/diag_allsix_movers.jl`).** The prediction recorded here — that the
 movers would be `houslack` and the `fhou2[d]` block, carrying the §L direction — is **refuted**.
 `houslack` moved 9.2e-6 and `fhou2[1]` 1.9e-5, i.e. nothing. The top movers are:
 
@@ -2194,7 +2194,7 @@ predicts ~0.4e-6. Two candidates remain, and exactly one cheap test separates th
       a well-defined response.
 
 A derivative is homogeneous: halve the shock and every response halves exactly. Drift has no reason
-to. `test/diag_linearity.jl` solves the identical closure at δ and δ/2 from **fresh models** (since
+to. `test/scratch/diag_linearity.jl` solves the identical closure at δ and δ/2 from **fresh models** (since
 `solve_newton!` mutates, re-shocking one model would measure a path, not two independent solves)
 and prints the per-mover ratio. Ratios at 2.0 ⇒ (i), closure usable, continuation just needs small
 steps. Scattered ratios ⇒ (ii), and the converged residual certifies nothing.
@@ -2217,7 +2217,7 @@ Unlike ALL SIX (zero steps accepted), the five good swaps walk a real branch and
 artifact.** It is also *earlier* than the base-closure fold (0.99981 vs 0.99975), so the `xcap =
 faccum` swap that §J predicted would remove it does not.
 
-**N.2 — The response is one coherent mode** (`test/diag_linearity.jl`). Doubling the shock:
+**N.2 — The response is one coherent mode** (`test/scratch/diag_linearity.jl`). Doubling the shock:
 `ratios: min=2.1909 median=2.1969 max=2.2095` over 20 movers — agreement to **0.9%**. That is not
 drift (drift does not reproduce a ratio twenty times); it is a smooth response with strong
 curvature, `bδ/a ≈ 0.10` at δ=1e-6. The script's own printed verdict said "NOT a clean derivative"
@@ -2226,7 +2226,7 @@ it has been fixed. *(That was the fourth over-confident script verdict in this i
 pattern is worth naming: a hard-coded threshold in a diagnostic is a hypothesis, and it gets tested
 by the data like any other.)*
 
-**N.3 — It is a SECTOR-2 mode, not a `[2,5]` cell** (`test/diag_pcap_rank.jl`). Ranking every
+**N.3 — It is a SECTOR-2 mode, not a `[2,5]` cell** (`test/scratch/diag_pcap_rank.jl`). Ranking every
 `pcap[i,d]` by relative response to a 1e-6 shock:
 
 ```
@@ -2321,7 +2321,7 @@ about the INDOTERM database, not about this port. Note also that the four next-l
 (Rubber, Cocoa, Coffee, Clove) are likewise below `DPRC`; at the 25-sector grid they are averaged up
 into their groups, which is why sector 2 emerges as the only aggregate with a negative net return.
 
-**N.7 — the counterfactual** (`test/diag_targ_counterfactual.jl`): sets `RNORMAL[2]` to the grid
+**N.7 — the counterfactual** (`test/scratch/diag_targ_counterfactual.jl`): sets `RNORMAL[2]` to the grid
 median and re-measures the ranking. `RNORMAL` reaches the model by two channels and a test moving
 only one would be worthless — directly as a `GRETEXP` multiplier (`prepare_parameters.jl:843`), and
 through `CAPSTOK = CAP/RNORMAL` (`build_premod!.jl:131–139`). **Trap avoided:**
@@ -2361,7 +2361,7 @@ what is driving the collapse.
 `RNORMAL` exactly. Aggregation then treated the two sides differently: `STOC` is a value flow and is
 **summed**, while `TARG` is a rate and was averaged by **MAKE output** (`aggregate_model!.jl:154`),
 with `aggregate_regions!.jl` taking an **unweighted mean** over merged provinces. Neither weight is
-the right one. `test/diag_rnormal_consistency.jl` measured the result:
+the right one. `test/scratch/diag_rnormal_consistency.jl` measured the result:
 
 ```
 GROSSRET/RNORMAL over 25 sectors:  min 0.7081, median 1.0056, max 1.1945
@@ -2398,7 +2398,7 @@ aggregates a rate must use the same weights as the quantities it is being compar
 Output weighting is biased *upward* whenever the rate varies within a group, because the low-rate
 members carry disproportionately large stocks (`CAPSTOK` divides by the small rate). The consistent
 Livestock rate is **0.021470**, *below* the carried 0.030321 — the same direction N.7 had just shown
-made the mode explode. Re-running `test/diag_pcap_rank.jl` after the rebuild
+made the mode explode. Re-running `test/scratch/diag_pcap_rank.jl` after the rebuild
 (`scratchpad/rank_after_fix.log`):
 
 | | before the fix | after the fix |
@@ -2651,7 +2651,7 @@ direction, so it says nothing about whether a fold exists — only that it is no
 fourth time a single-cell probe has misled; the rule stands: **rank all cells, never read a
 localisation off a script that prints one.**
 
-**The decisive measurement** is `test/diag_fold_tangent.jl`: at each converged point solve
+**The decisive measurement** is `test/scratch/diag_fold_tangent.jl`: at each converged point solve
 `J·v = −∂F/∂λ` by **direct sparse LU** (never CGNR — §N.10) for the tangent `dx/dλ`, where `∂F/∂λ`
 is the full-Jacobian column of the fixed shock variable.
 
@@ -2664,7 +2664,7 @@ is the full-Jacobian column of the fixed shock variable.
 
 ### §N.16 — ✅ DECIDED: it is a genuine FOLD, and the direction is region 4's household block
 
-`test/diag_fold_tangent.jl` ran the §N.15 measurement. Result (`scratchpad/fold_tangent.log`),
+`test/scratch/diag_fold_tangent.jl` ran the §N.15 measurement. Result (`scratchpad/fold_tangent.log`),
 TERM.CMF swapped closure, `blabnat` walking 1.0 → 0.97:
 
 | t | blabnat | ‖dx/dλ‖∞ | 1/‖dx/dλ‖∞ | σ_min(J_scaled) | argmax |
@@ -2703,7 +2703,7 @@ subsistence floor. `E_xlux!` is `xlux[c,d]·phou[c,d] == wlux[d]·alux[c,d]` and
 `xhou_s[c,d] == xlux[c,d] + xsub[c,d]`, with `xsub` pinned to `XSUB0·nhou·asub` — i.e. subsistence
 demand is *inelastic*. If region 4's income falls far enough that `wlux[4] → 0`, all adjustment
 margin is gone and the block goes singular. That would be an economically meaningful limit point,
-not a translation bug. `test/diag_wlux_floor.jl` measures it.
+not a translation bug. `test/scratch/diag_wlux_floor.jl` measures it.
 **❌ REFUTED — see §N.17.**
 
 **Remedy either way: pseudo-arclength continuation.** Natural-parameter continuation provably cannot
@@ -2712,7 +2712,7 @@ it; it is now back on the critical path.
 
 ### §N.17 — ❌ the subsistence-floor hypothesis is REFUTED; `whouhtot[4]` is running UP, not down
 
-`test/diag_wlux_floor.jl` (`scratchpad/wlux_floor.log`). The §N.16 hypothesis was that region 4's
+`test/scratch/diag_wlux_floor.jl` (`scratchpad/wlux_floor.log`). The §N.16 hypothesis was that region 4's
 supernumerary expenditure `wlux[4]` runs to zero and exhausts the ELES adjustment margin. It does
 the opposite.
 
@@ -2765,7 +2765,7 @@ load-tested, and NOT yet validated** — the first run was stopped before it pro
 nothing is known about whether the augmented assembly is correct. Resume with:
 
 ```
-julia --project=IndotermJulia IndotermJulia/test/verify_arclength.jl
+julia --project=. test/verify_arclength.jl
 ```
 
 Env: `TARGET` (default 0.97), `DS0` (0.05), `MAXSTEPS` (120). ~30–45 s per corrector iteration at
@@ -3249,7 +3249,7 @@ wrong.**
 - ~~The real `NLPEvaluator` construction is **not** in `solve_newton!.jl`; locate it before C3.~~
   **RESOLVED:** it is at `solve_newton!.jl:248`, built from a `MOI.Nonlinear.Model` populated by
   iterating `list_of_constraint_types(m)` → `all_constraints(m, Ftype, S)`, skipping
-  `Ftype <: VariableRef`. The three `test/diag_stall_*.jl` scripts reproduce that iteration order
+  `Ftype <: VariableRef`. The three `test/scratch/diag_stall_*.jl` scripts reproduce that iteration order
   exactly so Jacobian row *i* maps to a known equation signature.
 - ~~`build_pstras!.jl:173` `DISTANCE = reg1["MAKE"]` remains self-flagged as wrong (Active #4).~~
   **RESOLVED: not a defect.** It was dead code — overwritten by the correct `DISTANCE = ras["DIST"]`

@@ -31,7 +31,7 @@ wrong one, and they say nothing about credibility of magnitudes.
 | Standard CGE check | State | Where |
 |---|---|---|
 | Benchmark replication (zero shock → zero change) | ✅ ‖F‖∞ ≈ 1.4e-9 | `test/solve_benchmark_6reg.jl` |
-| Equation/unknown count; square system | ✅ 83,515² at 25×6 | `test/diag_eqcount_6reg.jl` |
+| Equation/unknown count; square system | ✅ 83,515² at 25×6 | `test/scratch/diag_eqcount_6reg.jl` |
 | Database balance identities | ✅ done; regional GDP identity fails ≤36.1% — **a defect in the shipped data**, not the translation | `PLAN.md` §N |
 | Price homogeneity, degree 0 | ✅ 2026-07-31 — worst cell 3.7e-4 → **2.4e-15** after removing a pinned price | `test/verify_homogeneity_tol.jl` |
 | Scenario provenance vs source `.CMF` | ✅ parsed mechanically, not asserted | `test/verify_scenario_complete.jl` |
@@ -73,7 +73,7 @@ that re-check the same configuration more precisely.
 | V5 Income-side GDP decomposition | 🟢 PASSED, 2026-08-02 | `test/verify_multiplier.jl`, rewritten — the old one-factor predictor (labour share × 3%) omitted the capital and employment channels `TERM_CMF_REFERENCE` deliberately switches on, so its 260% "error" was measuring a wrong predictor, not a model defect. Replaced with the income-side identity `Δln(RealGDP) ≈ s_L·(Δln L + a) + s_K·Δln K + s_LND·Δln LND`, reading `Δln L`/`Δln K` off the solved model (`NatMacro("AggEmploy")`/`NatMacro("AggCapStock")`) instead of assuming them fixed. Result: predicted +5.5144% vs measured +5.5567%, residual 0.7% (vs the retired test's 260%). See V5 section body for the `xlnd`-double-weighting bug caught and fixed en route (first attempt produced a nonsense 3.86e6% "land change" from treating a flow variable as a benchmark=1 index). |
 | V6 Closure ordering | 🔴 TIME-BOXED, unresolved, 2026-07-31 | `test/verify_closure_ordering.jl`: long-run leg solves cleanly every time (both `TERM_CMF_SWAPS` and the matched `TERM_LR_SWAPS_MATCHED`), ~3–7 min. Short-run leg (`TERM_SR_SWAPS`)'s Stage B folds at λ*≈0.9998 across THREE attempts — full shock, 30×-smaller shock, and a labour-matched long-run comparator — ruling out both "shock too large" and "mismatched closure pair" as the sole cause. Root cause still open. Stopped spending solver time on it (task `bt3nxq264` killed mid-run showing the same pathology as the prior two). Report as "ordering not established for this scenario," not as a pass or a translation defect — see V6 section body, "What this means for publication." |
 | V7 Regression suite | 🟢 written and passing, 2026-07-31 | `test/runtests.jl`: V9 31/31, V2 67667/67667, both green from a clean run. Wraps V9+V2 only (the two ungated passes); V1/V3/V4/V5/V6/V8 excluded, see V7 section. |
-| V8 Elasticity sensitivity | 🟡 script written, not yet executed, 2026-08-02 | `test/sensitivity.jl` — 13-solve Phase A sweep, handed off, ~55-85 min to run |
+| V8 Elasticity sensitivity | 🟡 RUN 2026-09-08, PARTIAL — 12 of 13 points | `test/sensitivity.jl` — 6 elasticity groups x {x0.5, x1.5} + centre against `COALPRICE_REFERENCE`. Centre 113s, residual 4.19e-09; perturbed points 64-105s. **All 10 headline metrics sign-stable**, table in `analysis/output/v8_sensitivity.csv`, per-point matrix in `v8_sensitivity_points.csv`. Two caveats carry into any citation of the range. (a) `P028 x0.5` folded at t = 0.6426 (205 steps, 14 rejections, 2276s) and is absent, so min/max is a **lower bound** — the omitted point is the one the model found hardest, not a random draw. (b) `SCET` is **inert in this aggregation**: the 6-region make matrix is fully diagonal (0 of 150 industry x region CET nests are multi-product), so alpha = 1 regardless of sigma and only a units scalar moves — two of the 13 solves widen nothing. Effective coverage is 5 of 6 groups. Running the sweep also found and fixed a defect that made it meaningless: it perturbed elasticities AFTER calibration, so CES share parameters stayed fitted to the old sigma (`P015 x0.5` failed benchmark replication at 20.1). Perturbation now precedes `prepare_parameters!`. Verified coupling: P015 -> ALPHA/GAMMA_ARMINT, P028 -> ALPHA/GAMMA_FAC, SLAB -> ALPHA/GAMMA_LAB, SCET -> GAMMA_MAKE only, SMAR and P018 equation-only. Gate correctly reports **no ✅** while a point is incomplete. |
 | ~~V9 route 2 (independent GEMPACK re-run)~~ | 🔴 DROPPED, 2026-08-01 — no GEMPACK licence available, permanently out of reach | V9 route 1b (draftreport.pdf comparison) already PASSED and stands as the project's external validation; see "Two routes" above |
 
 Per "Revised guidance for the remaining phases" below, V2/V6/V4 are the next priority once the
@@ -422,7 +422,7 @@ merely a `%dev = value/base-1` numerical-instability artifact of thin cells. **V
 under option (b) as implemented. The cell-level comparison remains in the file, non-gating, as
 recorded above.
 
-**Round 5 — sub-region response dispersion, `test/diag_balinusa_subregion_dispersion.jl`
+**Round 5 — sub-region response dispersion, `test/scratch/diag_balinusa_subregion_dispersion.jl`
 (2026-08-02).** Tested whether BaliNusa's two 12-region sub-units (province 28 alone; provinces
 29+30) diverge more sharply in their %dev-from-benchmark under the shock than other islands'
 sub-region pairs do — a genuine aggregation-bias mechanism, distinct from the weight-imbalance
@@ -476,7 +476,7 @@ results:**
   limitation, not a bug to chase.
 
 **Round 6 (post-closure) — GDP itself, not just proxy flow components,
-`test/diag_regional_gdp_resolution.jl` (2026-08-02).** All five rounds above tested *flow*
+`test/scratch/diag_regional_gdp_resolution.jl` (2026-08-02).** All five rounds above tested *flow*
 variables (`xinvi`, `xsuppmar`, etc.) — GDP itself was never directly compared 6-region-direct
 vs. 12-region-aggregated-to-6. Motivated by a downstream research question (does a coal-export
 shock move Sumatra's / Kalimantan's regional GDP by a defensible sign/magnitude), this
@@ -830,7 +830,7 @@ with a warm `cached_pipeline(6)`) · **Type:** process
 **Status: 🟢 written and passing, 2026-07-31** — `test/runtests.jl` exists and runs fully green:
 `V9 — coalprice.CMF external validation + regression baseline: 31/31 Pass`,
 `V2 — numeraire invariance (:gdppi vs :cpi): 67667/67667 Pass`. `Test.jl`-based (`@testset`), so
-a future `julia --project=IndotermJulia IndotermJulia/test/runtests.jl` fails loudly and
+a future `julia --project=. test/runtests.jl` fails loudly and
 specifically (file:line, expected vs actual) rather than requiring someone to eyeball a
 printed table.
 

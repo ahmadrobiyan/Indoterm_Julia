@@ -6,7 +6,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 .env
-Manifest.toml
 
 data/national_data.csv
 data/cache_*.jls
+
+# Manifest.toml is deliberately NOT ignored: it is the reproducibility lock file.
+# See README.md 'Reproducing published results'.

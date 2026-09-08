@@ -1,3 +1,7 @@
+> **A newer handoff exists:** `HANDOFF-2026-09-08.md` covers the reproducibility/CI/V8
+> infrastructure session. This file remains the authoritative handoff for the MODEL itself
+> (the two `solve_newton!.jl` defects and the equation-count reconciliation).
+
 # HANDOFF — IndotermJulia, 2026-07-26
 
 Written at the end of a session whose only instruction was *"run the model."* Read
@@ -26,7 +30,7 @@ result so far is a *consistency* result. §7 is ordered to attack that.
 ## 2. What I actually ran
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/solve_benchmark_6reg.jl
+julia --project=. test/solve_benchmark_6reg.jl
 ```
 
 Verbatim output of the first (failing) run:
@@ -144,7 +148,7 @@ wasn't in scope for "run the model" and it is harmless at runtime.
 
 ## 5. RESOLVED — the ~6,900-equation drop is four new zero-flow guards
 
-*(Settled 2026-07-26 by `test/diag_eqcount_6reg.jl`. Kept in full because the reasoning is
+*(Settled 2026-07-26 by `test/scratch/diag_eqcount_6reg.jl`. Kept in full because the reasoning is
 reusable, and because the "why you cannot skip this" argument at the end still applies to
 any future count change.)*
 
@@ -184,7 +188,7 @@ accumulation order. So I lean toward the evening-of-Jul-25 equation edits.
 
 ### The answer
 
-`test/diag_eqcount_6reg.jl` counts variables fixed at *build* time — i.e. guard pins, before
+`test/scratch/diag_eqcount_6reg.jl` counts variables fixed at *build* time — i.e. guard pins, before
 `initialize_model!` applies any closure-exogenous fixes. 9,217 total. Four of the families
 are new since the 90,460 measurement (all four guards were added to `build_equations.jl` on
 Jul 25 evening), and they account for the delta exactly:
@@ -210,7 +214,7 @@ commodity × industry × region and the make matrix is nearly diagonal by constr
 Regenerate any time with:
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/diag_eqcount_6reg.jl
+julia --project=. test/scratch/diag_eqcount_6reg.jl
 ```
 
 (It caches the pipeline output to `agg6_cache.jls`, so repeat runs skip the ~3-minute data

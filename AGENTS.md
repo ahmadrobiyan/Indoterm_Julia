@@ -138,8 +138,24 @@ are Julia scripts under `test/verify_*.jl` (one file per gate, e.g.
 gate directly, e.g.:
 
 ```bash
-julia --project=IndotermJulia IndotermJulia/test/verify_aggregation_consistency.jl
+julia --project=. test/verify_aggregation_consistency.jl
 ```
+
+Or run a whole tier through the runner (`test/gates.tsv` assigns each gate to `fast`,
+`integration`, `full` or `nongating`):
+
+```bash
+bash scripts/run_gates.sh fast
+```
+
+**Read this before trusting a green run.** Most `verify_*` scripts print their verdict and
+**exit 0 even when they fail** — an exit status alone certifies nothing. `run_gates.sh`
+compensates for gates marked `marker` by requiring exit 0 **and** a `✅` **and** no
+`❌`/`FAILED`/`FAILS`. That is a stopgap, and it means a green tier reads as "no gate printed a
+failure", which is weaker than "every gate asserted a pass". Do not simplify the runner back to
+an exit-code check, and do not add a new gate without deciding its row in `gates.tsv`. The real
+fix is converting those scripts to throwing `Test.jl` `@testset`s; until then the weaker
+guarantee is the one you have.
 
 `test/pipeline_cache.jl` provides `cached_pipeline(nr; rmap)` to avoid rebuilding the data pipeline
 on every run — most gate scripts use it. For a quick region-level sanity check on any solved

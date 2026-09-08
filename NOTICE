@@ -1,0 +1,33 @@
+INDOTERM-Julia — third-party provenance
+=======================================
+
+The MIT licence in `LICENSE` covers the Julia implementation authored in this
+repository: `src/`, `test/`, `scripts/`, `analysis/`, and the documentation files
+at the repository root.
+
+IT DOES NOT COVER `origin/`.
+---------------------------
+
+`origin/` contains the original INDOTERM GEMPACK/TABLO source and its base-year
+data, redistributed here as provenance so that the translation can be checked
+against the source it claims to translate:
+
+  - `origin/TERM.TAB`, `origin/TERM.CMF` and the surrounding .TAB/.CMF/.STI/.BAT
+    programs — the TERM model, designed by Mark Horridge (Centre of Policy
+    Studies, Victoria University), 2002-2006, with a 2013 dynamic extension.
+  - `origin/national.har`, `origin/regsupp.har`, `origin/DISTGONE.HAR` — base-year
+    data assembled for the 2016 Indonesia TERM database.
+  - `origin/*.exe` — GEMPACK utility binaries.
+  - `origin/draftreport.pdf` — the reference report whose Table 2/3 results the
+    port is validated against.
+
+ACTION REQUIRED BEFORE PUBLIC RELEASE OR ARCHIVING
+--------------------------------------------------
+The redistribution terms for the material in `origin/` belong to its original
+authors, not to this repository. Confirm permission to redistribute — or remove
+`origin/` and replace it with acquisition instructions — before making this
+repository public, minting a DOI, or depositing it as a replication package.
+
+The data derived into `data/` (`national_data.zip`, `regsupp_data.csv`,
+`distgone_data.csv`) is exported from those same `.har` files and inherits the
+same question.
