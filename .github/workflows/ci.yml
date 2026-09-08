@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1.10"
+          version: "1.12"
       - uses: julia-actions/cache@v2
       - run: bash scripts/verify_data.sh
       - name: Instantiate (honours committed Manifest.toml)
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1.10"
+          version: "1.12"
       - uses: julia-actions/cache@v2
       - run: bash scripts/verify_data.sh
       - run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.status()'

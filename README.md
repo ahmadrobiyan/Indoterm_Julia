@@ -32,6 +32,27 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'          # environment
 bash scripts/run_gates.sh fast                               # seconds
 ```
 
+## Windows (PowerShell)
+
+The helper scripts in `scripts/` are bash. On Windows either use **Git Bash** (ships with Git
+for Windows) or **WSL** to run them:
+
+```bash
+bash scripts/verify_data.sh
+bash scripts/run_gates.sh fast
+```
+
+**Individual gates need no bash at all** — run them directly in PowerShell:
+
+```powershell
+Expand-Archive -Force data\national_data.zip -DestinationPath data\
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. test\sensitivity.jl        # V8 elasticity sweep
+julia --project=. test\runtests.jl           # V7 regression suite
+```
+
+Gate definitions, including what each one is, are in `test/gates.tsv`.
+
 ## Reproducing published results
 
 ```bash
@@ -58,6 +79,11 @@ derived artifact (gitignored, ~66 MB) unpacked from `data/national_data.zip`;
 `scripts/verify_data.sh` unpacks it and checks it against the recorded hash.
 
 ## Environment reproducibility
+
+**Julia version.** Development and CI both target **Julia 1.12** (`.github/workflows/ci.yml`).
+`Project.toml` allows >= 1.10, but the committed `Manifest.toml` records the version it was
+generated on — generate it on the same version CI runs, or the lock is not actually pinning
+the environment.
 
 `Manifest.toml` **must be committed**. It is the lock file that makes a result
 reconstructible. This is not a formality — an unpinned dependency update once took
