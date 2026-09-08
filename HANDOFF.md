@@ -1,3 +1,7 @@
+> **A newer handoff exists:** `HANDOFF-2026-09-08.md` covers the reproducibility/CI/V8
+> infrastructure session. This file remains the authoritative handoff for the MODEL itself
+> (the two `solve_newton!.jl` defects and the equation-count reconciliation).
+
 # HANDOFF — IndotermJulia, 2026-07-26
 
 Written at the end of a session whose only instruction was *"run the model."* Read
