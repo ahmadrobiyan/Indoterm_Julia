@@ -1,0 +1,20 @@
+# Data provenance files are checksummed byte-for-byte in data/checksums.sha256.
+# Git must NOT translate their line endings on checkout: with core.autocrlf=true
+# (the Windows default, and the setting on the machine this model is actually run
+# on) the worktree copy gains CRLF, its SHA-256 no longer matches the manifest,
+# and `bash scripts/verify_data.sh` fails on the dev machine while passing in
+# Linux CI. Marking them -text pins the checked-out bytes to the stored blob.
+data/*.csv -text
+data/*.zip binary
+origin/**/*.har binary
+
+# Shell scripts must keep LF regardless of platform. With core.autocrlf=true a
+# checked-out CRLF `.sh` fails under Git Bash/WSL with errors that point nowhere
+# near the cause ("$'\r': command not found", or a shebang that silently misses).
+# These scripts ran clean while untracked precisely because no conversion applied
+# to them; committing them without this rule would break them on the next checkout.
+*.sh text eol=lf
+
+# gates.tsv is parsed field-by-field by scripts/run_gates.sh; a trailing CR would
+# be absorbed into the last column (the verdict type) and silently mis-tier a gate.
+test/gates.tsv text eol=lf

@@ -73,7 +73,7 @@ that re-check the same configuration more precisely.
 | V5 Income-side GDP decomposition | 🟢 PASSED, 2026-08-02 | `test/verify_multiplier.jl`, rewritten — the old one-factor predictor (labour share × 3%) omitted the capital and employment channels `TERM_CMF_REFERENCE` deliberately switches on, so its 260% "error" was measuring a wrong predictor, not a model defect. Replaced with the income-side identity `Δln(RealGDP) ≈ s_L·(Δln L + a) + s_K·Δln K + s_LND·Δln LND`, reading `Δln L`/`Δln K` off the solved model (`NatMacro("AggEmploy")`/`NatMacro("AggCapStock")`) instead of assuming them fixed. Result: predicted +5.5144% vs measured +5.5567%, residual 0.7% (vs the retired test's 260%). See V5 section body for the `xlnd`-double-weighting bug caught and fixed en route (first attempt produced a nonsense 3.86e6% "land change" from treating a flow variable as a benchmark=1 index). |
 | V6 Closure ordering | 🔴 TIME-BOXED, unresolved, 2026-07-31 | `test/verify_closure_ordering.jl`: long-run leg solves cleanly every time (both `TERM_CMF_SWAPS` and the matched `TERM_LR_SWAPS_MATCHED`), ~3–7 min. Short-run leg (`TERM_SR_SWAPS`)'s Stage B folds at λ*≈0.9998 across THREE attempts — full shock, 30×-smaller shock, and a labour-matched long-run comparator — ruling out both "shock too large" and "mismatched closure pair" as the sole cause. Root cause still open. Stopped spending solver time on it (task `bt3nxq264` killed mid-run showing the same pathology as the prior two). Report as "ordering not established for this scenario," not as a pass or a translation defect — see V6 section body, "What this means for publication." |
 | V7 Regression suite | 🟢 written and passing, 2026-07-31 | `test/runtests.jl`: V9 31/31, V2 67667/67667, both green from a clean run. Wraps V9+V2 only (the two ungated passes); V1/V3/V4/V5/V6/V8 excluded, see V7 section. |
-| V8 Elasticity sensitivity | not started | `test/sensitivity.jl` (does not exist yet) |
+| V8 Elasticity sensitivity | 🟡 script written, not yet executed, 2026-08-02 | `test/sensitivity.jl` — 13-solve Phase A sweep, handed off, ~55-85 min to run |
 | ~~V9 route 2 (independent GEMPACK re-run)~~ | 🔴 DROPPED, 2026-08-01 — no GEMPACK licence available, permanently out of reach | V9 route 1b (draftreport.pdf comparison) already PASSED and stands as the project's external validation; see "Two routes" above |
 
 Per "Revised guidance for the remaining phases" below, V2/V6/V4 are the next priority once the
@@ -520,6 +520,112 @@ itself, not a translation defect, and is a materially larger and distinct issue 
 model-side `wgdpdiff` check (0.56-0.95%) already on record — worth flagging separately if
 region 6 (MalukuPapua) GDP levels are ever quoted.
 
+**Discussion — 2026-08-02, does V4 undercut the reason this model was translated to Julia at
+all?** Raised directly by the user: INDOTERM was moved into Julia specifically for its
+comprehensive region coverage and its ability to answer regional-development questions — does
+V4's failure undermine that? Recorded here as a standing answer, not a one-off remark.
+
+- **What V4 tests vs. what the motivation depends on.** V4 asks "does the same region get the
+  same answer if the geography is split into a different number of regions" — a resolution-
+  consistency check. The motivation depends on "does the region axis carry real, differentiated
+  information" — a different question, and V4's own evidence answers it affirmatively: national
+  GDP is untouched (0.04-0.05% throughout, five rounds; 0.538% vs 0.578% in round 6), and islands
+  respond differently from each other in both sign and magnitude (Kalimantan's GDP deviation is
+  ~5.2% at both resolutions, an order of magnitude above every other region's <0.4%) — the
+  region axis is doing real, differentiated work, not producing noise.
+- **The BaliNusa mechanism is itself evidence of real regional detail, not a symptom of fake
+  detail.** Bali and Nusa Tenggara pull in opposite directions under the same national shock —
+  the model is resolving genuine sub-regional heterogeneity fine enough to tell two provinces on
+  one island apart. A model too coarse to discriminate between them wouldn't produce this
+  pattern at all.
+- **Quantified severity.** Every one of the 29 flagged region-aggregate sign disagreements has
+  |dev| < 0.3% (see below), and round 6 confirms the same for GDP directly: 5 of 6 regions
+  (Sumatra, Java, Kalimantan, Sulawesi, MalukuPapua) are sign-robust, only BaliNusa flips, and
+  its flip is between −0.021% and +0.035% — both readings are "no material regional effect."
+  Nothing a research claim would headline is in the flagged set.
+- **Field context.** Almost no published regional CGE study — including the GEMPACK TERM work
+  this model descends from — runs a cross-resolution consistency check like V4 at all. Its
+  failure is a disclosed, narrow, quantified caveat that most regional CGE work doesn't even
+  have the instrumentation to discover, not a defect unique to this translation.
+- **Conclusion, standing.** The comprehensive-region-coverage motivation stays intact for the
+  large majority of results, including directional claims about Sumatra and Kalimantan GDP under
+  a coal shock. The one honest restriction: for the small, named set of near-zero variables (see
+  the fragility tooling below), don't report a directional/sign claim without an independent
+  check.
+
+**Why the flagged sign flips are all small in magnitude — not a separate coincidence.**
+Follow-up question: is "every flip is under 0.3%" an independent, lucky mitigating fact, or does
+it follow from round 5's mechanism? It's entailed, not coincidental. A region's merged response
+can only straddle zero (and so be fragile to how it's resolved) if the underlying sub-region
+effects are opposite in direction AND small enough that neither dominates. A large,
+one-directional true response cannot flip sign from a small change in aggregation detail — that
+would require one sub-region's effect to overpower the other's by construction. So "small
+magnitude" and "sign-fragile" are the same phenomenon seen from two sides, not two findings that
+happen to agree. Counter-example that confirms this: Kalimantan's sub-regions disperse *more*
+than BaliNusa's in relative terms but never flip sign, because both sub-regions move the *same*
+direction — dispersion without opposite signs is harmless; opposite signs near zero is what
+flips.
+
+**Root cause of the BaliNusa-specific pattern, and whether region-weight imbalance explains it.**
+Two distinct notions of "imbalance" were tested; only one survived as the driver:
+- *Economic weight* (how much bigger one sub-province is than the other) — **ruled out**. Round
+  4's rebalance took BaliNusa's split from the worst-imbalanced island (3.25x) to the
+  best-balanced (1.23x); if weight imbalance were the root cause that fix should have eliminated
+  the flips. It reduced material flips (299→165) but did not eliminate them — evidence weight
+  imbalance is an amplifier, not the root cause.
+- *Direction of response* (which way each sub-region moves under the shock) — **the actual root
+  cause**. This is a nonlinear CES/CET substitution-nest property: a price shock can push one
+  sub-region toward more domestic sourcing while pushing a neighbouring sub-region the other way,
+  for reasons specific to each sub-region's own trade/sectoral composition. Merged, opposite
+  small pulls nearly cancel, landing close to zero — and which side of zero the merge lands on is
+  then sensitive to resolution/weighting detail. This is a genuine property of the model's
+  substitution structure under this shock, not a coding defect, and not fixable by region-map
+  weight tuning alone (round 4 already showed the best-possible weighting still left 165 flips).
+
+**Considered and deferred — disaggregating Bali and Nusa Tenggara into two separate regions.**
+Raised as a what-if: would un-merging the two directly fix this? Likely yes for BaliNusa
+specifically — with nothing left to cancel, each would very likely show its own well-determined
+sign. But not a free fix: (1) it is whack-a-mole, not a cure — the same near-zero-crossing
+pattern could recur one level down inside either new region's own province-level sub-splits,
+since the mechanism is general, not specific to BaliNusa; only true finest resolution (34
+regions, infeasible per the region-scaling measurements elsewhere in this file) provably removes
+it. (2) it changes the region count from the locked 6 to 7 — a change to what the validation
+model *is*, requiring explicit user authorization, not a test-methodology choice, and would
+require re-validating every gate that already passed at 6 regions (V1, V2, V5, V9) at the new
+resolution, plus checking whether Bali/Nusa Tenggara's source data supports a clean split (the
+benchmark already carries a known ≤38.5% regional-GDP-identity gap, see above). **Not
+implemented.** If pursued, the recommended first step is a test-instrument run (BaliNusa split
+as 7 vs 14 regions, same V4 method) before promoting it to the locked validation model — mirrors
+how 12-region was used as a test instrument for V4 itself, not a change to the validation model.
+
+**Tooling added, 2026-08-02 — `src/regional_confidence.jl`, a reusable early-warning check.**
+Directly answering "how can a modeler identify these cells for their own scenario, not just the
+one V4 happened to test." V4's flagged-cell list is an artifact of one test instrument
+(`coalprice.CMF +12%`); a different shock lands its near-zero crossings on different variables,
+and rerunning V4's full method (a second solve at 12 regions) per scenario costs ~15-30 min.
+Instead, `regional_confidence_report(vals, bmk, nr=6)` / `print_regional_confidence_report(...)`
+apply the empirical pattern above as a cheap, single-solve heuristic: after `run_model!`, collapse
+every flow variable to its region axis/axes (same rule as V4's `regional_totals`), compute
+`%dev = value/base - 1` per region, and flag any cell with `1e-6 <= |dev| < 0.5%`
+(`REGIONAL_FRAGILITY_THRESHOLD`, set with margin above the largest confirmed V4 flip, 0.298%;
+the lower `REGIONAL_NOISE_FLOOR = 1e-6` excludes pure solver-residual noise, ~1e-9, from a
+near-zero or unshocked re-solve). This does **not** rerun at a second resolution and flagging a
+cell is not proof of fragility — false positives are the intended, safe failure mode of a
+screen, not a defect. Exported from `IndotermJulia`; intended usage:
+```julia
+r = run_model!(agg, params, scenario)
+print_regional_confidence_report(r.values, bmk6, 6)   # bmk6 = benchmark_levels(params)
+```
+**Smoke-tested, 2026-08-02.** (1) Zero-shock benchmark re-solve: 0 flags after a noise floor was
+added — the first pass without one wrongly flagged `xtradmar` in every region at "-0.0%", pure
+1e-9-order solver noise misread as a near-zero result; fixed by adding `REGIONAL_NOISE_FLOOR`.
+(2) `coalprice.CMF +12%` at 6 regions only (no second-resolution rerun): 135 cells flagged,
+correctly including the known V4 near-zero set — `xinvi[BaliNusa]` 0.2046%, `xinv[BaliNusa]`
+0.2015%, `xinv_s[BaliNusa]` 0.2014% — matching `v4_run12_gate_b.log`'s independently-derived
+values (0.205%/0.202%/0.201%) to 3 decimal places, via a completely different code path (one
+6-region solve plus a magnitude heuristic, vs. two solves and a cross-resolution compare). This
+cross-check is strong evidence the heuristic measures the right thing.
+
 ---
 
 ### V5 — Income-side GDP decomposition identity on the reference simulation
@@ -761,8 +867,12 @@ been.
 
 ### V8 — Elasticity sensitivity analysis
 **File:** `test/sensitivity.jl` · **Cost:** high (N solves) · **Type:** validation
-**Status: 🔴 not started** — file does not exist yet. Correctly sequenced last of the numbered
-gates (Phase 3, "expensive or blocked") — each sweep point is a full solve.
+**Status: 🟡 script written 2026-08-02, NOT yet executed** — implements Phase A (13 solves of
+`COALPRICE_REFERENCE`: 1 center point + 6 elasticity groups × {×0.5, ×1.5}), reusing
+`cached_pipeline(6)` and the same `NatMacro`/`MAINMACROS` headline-metric accessor V9 uses.
+Handed off, not run — expected cost ~55-85 minutes. Correctly sequenced last of the numbered
+gates (Phase 3, "expensive or blocked") — each sweep point is a full solve, and every cheaper
+gate (V1-V7, V9) is a precondition for this one meaning anything.
 **Design written:** `V8_ELASTICITY_SENSITIVITY.md`, 2026-08-01 — traces all 6 elasticity
 groups (SLAB/P028/P015/SMAR/SCET/P018) from source to consumption, recommends a group-level
 (not per-sector) ±50% one-at-a-time sweep against `COALPRICE_REFERENCE` (13 solves ≈ 1-1.5h),

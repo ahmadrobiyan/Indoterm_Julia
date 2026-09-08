@@ -259,3 +259,134 @@ const COALPRICE_REFERENCE = Scenario(
   Reference results: test/reference/draftreport_coalprice.md (national row of
   Table 2: Real GDP -0.09, CPI 1.54, Export vol -3.41, Employment -0.27).""",
 )
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Industrial / GVC policy scenarios — "hilirisasi" (downstreaming)
+#
+# These are NOT transcribed from a `.CMF` file. They are constructed here, and
+# `source` says so. The transcription rule in this file's header applies to
+# scenarios that have a GEMPACK original; for a constructed scenario the
+# equivalent obligation is to state the POLICY MAPPING — which real instrument
+# each shock is standing in for, and what that mapping does not capture. That
+# is what the `notes` field carries below, and no number from these runs should
+# be quoted without it.
+#
+# Closure is `COALPRICE_SWAPS` with `numeraire = :exrate` throughout — the only
+# closure in this project with an external reference result, and a genuine
+# comparative static (no capital accumulation, no productivity trend). Capital
+# is therefore EXOGENOUS, which is what makes an explicit `xcap` injection the
+# right way to represent a smelter build: the policy puts the capital there, the
+# model does not have to decide to.
+#
+# Sector indices (aggregation_data.jl): 7 = OthMining, 14 = BasMetals.
+# Region indices (REG6): 1 Sumatra, 2 Java, 3 Kalimantan, 4 Sulawesi,
+# 5 BaliNusa, 6 MalukuPapua.
+# ═══════════════════════════════════════════════════════════════════════════
+
+"""
+Ore export restriction — the *ban* leg of hilirisasi, with no downstream build.
+
+**Instrument mapping.** `fqexp_d[7] = logpct(-30)` shifts the foreign demand
+schedule for `OthMining` (metal ores and concentrates) down 30%. `fqexp_d` is
+the national, log-additive quantity shifter in `E_xexpd`
+(`build_equations.jl:714`), so a downward shift means the same domestic price
+now clears a smaller export volume — ore that used to leave the country is
+pushed back onto the domestic market and the domestic ore price falls. That
+price fall IS the mechanism hilirisasi relies on: cheap feedstock for smelters.
+
+**What this mapping does NOT capture.** A real export ban is a quantity
+prohibition, and a real export tax raises revenue. A demand-schedule shift
+raises neither revenue nor a licence rent, so the fiscal leg of the policy is
+absent and the welfare result here is, if anything, generous to the ban's
+critics on revenue and silent on rent capture. It also treats the restriction
+as permanent and fully anticipated.
+
+**Aggregation caveat, and it is the big one.** In the 2016 benchmark the
+`OthMining` export base is concentrated in **MalukuPapua (35,093 of 48,733 =
+72%)** and **BaliNusa (8,803 = 18%)** — i.e. copper concentrate from Papua and
+Sumbawa, not Sulawesi nickel, which by 2016 was already being smelted in-region
+(Sulawesi `BasMetals` output 19,290, exports 11,145). So this scenario is an
+experiment about the COPPER concentrate chain in the two poorest island groups.
+Reading it as "the 2020 nickel ore ban" is a category error the sector labels
+invite and the data refuses.
+"""
+const HILIRISASI_BAN = Scenario(
+    name   = "hilirisasi — ore export restriction (OthMining demand −30%)",
+    source = "constructed; analysis/gvc_policy.jl",
+    swaps  = COALPRICE_SWAPS,
+    shocks = [("fqexp_d", 7) => logpct(-30)],
+    numeraire = :exrate,
+    notes = """
+  fqexp_d is LOG-additive — the shock is log(0.7), not 0.7. No export-tax
+  revenue and no licence rent is modelled. The OthMining export base is 72%
+  MalukuPapua / 18% BaliNusa: this is the copper-concentrate chain, NOT the
+  2020 nickel ban.""",
+)
+
+"""
+Smelter build sited in **Java** — `xcap[14, 2]` +20%, no export restriction.
+
+`xcap` is exogenous under `COALPRICE_SWAPS` (no `xcap = faccum` swap), so this
+is a direct capital injection into `BasMetals` in Java, standing in for a
+greenfield smelter financed from outside the model. `pct_shocks` is used, not
+`shocks`, because `xcap`'s benchmark is the CAP data value, not 1.
+
+Java's BasMetals capital base is 41,742, so +20% = **8,348 units** injected.
+Compare against `HILIRISASI_SMELTER_EAST`, which injects only 1,048, and
+normalise before drawing a siting conclusion — see `analysis/gvc_policy.jl`.
+"""
+const HILIRISASI_SMELTER_JAVA = Scenario(
+    name   = "hilirisasi — smelter capital +20% in Java BasMetals",
+    source = "constructed; analysis/gvc_policy.jl",
+    swaps  = COALPRICE_SWAPS,
+    pct_shocks = [("xcap", 14, 2) => 20.0],
+    numeraire = :exrate,
+    notes = """
+  Capital appears from outside the model — no crowding-out of the investment
+  that financed it, and no construction phase. Absolute injection 8,348 units
+  (20% of a 41,742 base), ~8x the eastern variant: normalise per unit of
+  capital before comparing sites.""",
+)
+
+"""
+The same build sited **at the resource** — `xcap[14, 4]` (Sulawesi) and
+`xcap[14, 6]` (MalukuPapua) each +20%.
+
+Absolute injection is 20% × (5,110 + 129) = **1,048 units**, about one eighth of
+the Java variant, because eastern BasMetals capital is tiny in the benchmark.
+That asymmetry is the point of the pair, not a flaw in it: it is what "siting
+downstream capacity where the ore is" actually costs relative to what it moves.
+"""
+const HILIRISASI_SMELTER_EAST = Scenario(
+    name   = "hilirisasi — smelter capital +20% in Sulawesi + MalukuPapua BasMetals",
+    source = "constructed; analysis/gvc_policy.jl",
+    swaps  = COALPRICE_SWAPS,
+    pct_shocks = [("xcap", 14, 4) => 20.0, ("xcap", 14, 6) => 20.0],
+    numeraire = :exrate,
+    notes = """
+  Absolute injection 1,048 units vs 8,348 for the Java variant — a like-for-like
+  siting comparison requires normalising by capital injected, not comparing the
+  raw percentage results.""",
+)
+
+"""
+The full policy: restriction **and** an at-the-resource build, run jointly so the
+interaction can be recovered as `S4 - S1 - S3` against the two single-leg runs.
+
+The interaction is the whole empirical question. Hilirisasi's case is that the
+ban and the build are complements — the ban is what makes the smelter viable. If
+the joint result is no better than the sum of the parts, the ban is buying
+nothing that the build does not already deliver on its own.
+"""
+const HILIRISASI_FULL = Scenario(
+    name   = "hilirisasi — ore restriction + eastern smelter build",
+    source = "constructed; analysis/gvc_policy.jl",
+    swaps  = COALPRICE_SWAPS,
+    shocks = [("fqexp_d", 7) => logpct(-30)],
+    pct_shocks = [("xcap", 14, 4) => 20.0, ("xcap", 14, 6) => 20.0],
+    numeraire = :exrate,
+    notes = """
+  Three shocks, so `run_model!`'s arclength fallback is unavailable (it traces a
+  single VariableRef). If the homotopy stalls, stage the legs rather than
+  reporting a partial t as a result.""",
+)

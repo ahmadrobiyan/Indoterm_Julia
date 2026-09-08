@@ -32,6 +32,7 @@ include("run_model!.jl")
 # after run_model!.jl (needs `pct`) and closures.jl (needs `_side_name`) — the
 # scenario constants call both at definition time.
 include("scenarios.jl")
+include("regional_confidence.jl")
 
 export COM, IND, SRC, OCC, MAR, REG, DST, ORG, PRD, HOU
 export read_national_data, read_regsupp_data, read_distgone_data
@@ -56,5 +57,7 @@ export calculate_gdp, gdp_both_sides_check, gdp_change_consistency, print_gdp_re
 export GDPReport, GDPINCCAT, GDPEXPCAT
 export run_model!, ScenarioResult, pct, logpct
 export Scenario, describe, TERM_CMF_REFERENCE, TERM_CMF_NO_DELUNITY, COALPRICE_REFERENCE
+export HILIRISASI_BAN, HILIRISASI_SMELTER_JAVA, HILIRISASI_SMELTER_EAST, HILIRISASI_FULL
+export regional_confidence_report, print_regional_confidence_report, REGIONAL_FRAGILITY_THRESHOLD
 
 end # module IndotermJulia
