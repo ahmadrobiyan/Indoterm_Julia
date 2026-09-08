@@ -87,7 +87,7 @@ out of this model. Full detail in `VV_PLAN.md`.
 | **External validation vs published GEMPACK result — V9** | ✅ all 8 Table 2 columns, sign + within 0.5 pp |
 | Aggregation consistency — V4 | 🟤 closed as a **disclosed limitation** |
 | Closure ordering (short-run leg) — V6 | 🔴 **unresolved**, time-boxed |
-| Elasticity sensitivity — V8 | ⬜ **not started** |
+| Elasticity sensitivity — V8 | 🟡 implemented (`test/sensitivity.jl`), **not yet run** |
 
 ### Known limitations — read before citing
 
@@ -95,7 +95,8 @@ out of this model. Full detail in `VV_PLAN.md`.
    solving needs Excerpt 49 (`Substitute`/`Backsolve`) condensation: Jacobian LU
    fill-in already exceeds 16 GB at 20 regions. Do not describe results as
    provincial.
-2. **No elasticity sensitivity analysis has been run (V8).** Benchmark replication
+2. **No elasticity sensitivity analysis has been run (V8).** The sweep is implemented
+   (`test/sensitivity.jl`, `bash scripts/run_gates.sh full`) but has never been executed. Benchmark replication
    is structurally insensitive to exactly the parameters that drive counterfactual
    results — a mistranslated substitution elasticity changes nothing at the
    benchmark and everything off it. Magnitudes are not yet defensible against a
