@@ -10,7 +10,7 @@
 # Reports t_reached for every attempt. It never claims success from a small residual: a
 # stalled branch reports the residual at its last ACCEPTED point, which is always small.
 
-include(joinpath(@__DIR__, "pipeline_cache.jl"))
+include(joinpath(@__DIR__, "..", "pipeline_cache.jl"))
 using Printf
 
 function attempt(agg6, params, factor, label; kw...)

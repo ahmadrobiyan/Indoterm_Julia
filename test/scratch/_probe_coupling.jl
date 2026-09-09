@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "pipeline_cache.jl"))
+include(joinpath(@__DIR__, "..", "pipeline_cache.jl"))
 agg6, params = cached_pipeline(6)
 
 function same_value(a, b)
