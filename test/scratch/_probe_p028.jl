@@ -19,6 +19,10 @@ function attempt(agg6, params, factor, label; kw...)
     p2 = prepare_parameters!(agg2)
     @assert vec(parent(p2["P028"])) != vec(parent(params["P028"]))
     println("── $label")
+    # Redirected stdout is block-buffered and this probe prints too little to overflow the
+    # buffer, so without explicit flushes the log stays empty for the entire run and progress
+    # is unobservable — which is exactly what happened on the 2026-09-08 launch.
+    flush(stdout)
     t0 = time()
     res = run_model!(agg2, p2, COALPRICE_REFERENCE;
                      tol = 1e-8, gdp = false, verbose = false, kw...)
@@ -29,6 +33,7 @@ function attempt(agg6, params, factor, label; kw...)
         @printf("   INCOMPLETE after %.0fs — t = %.4f, %d steps, %d rejections\n",
                 dt, res.t_reached, res.nsteps, res.nrejects)
     end
+    flush(stdout)
     return res.solved, res.t_reached
 end
 
