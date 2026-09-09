@@ -867,12 +867,39 @@ been.
 
 ### V8 — Elasticity sensitivity analysis
 **File:** `test/sensitivity.jl` · **Cost:** high (N solves) · **Type:** validation
-**Status: 🟡 script written 2026-08-02, NOT yet executed** — implements Phase A (13 solves of
-`COALPRICE_REFERENCE`: 1 center point + 6 elasticity groups × {×0.5, ×1.5}), reusing
-`cached_pipeline(6)` and the same `NatMacro`/`MAINMACROS` headline-metric accessor V9 uses.
-Handed off, not run — expected cost ~55-85 minutes. Correctly sequenced last of the numbered
-gates (Phase 3, "expensive or blocked") — each sweep point is a full solve, and every cheaper
-gate (V1-V7, V9) is a precondition for this one meaning anything.
+**Status: 🟡 RUN 2026-09-08, PARTIAL — 12 of 13 points.** See the gate table row for the
+result and its two caveats. Implements Phase A (13 solves of `COALPRICE_REFERENCE`: 1 centre
+point + 6 elasticity groups × {×0.5, ×1.5}), reusing `cached_pipeline(6)` and the same
+`NatMacro`/`MAINMACROS` headline-metric accessor V9 uses. Correctly sequenced last of the
+numbered gates (Phase 3, "expensive or blocked") — each sweep point is a full solve, and every
+cheaper gate (V1-V7, V9) is a precondition for this one meaning anything.
+
+#### The `P028 ×0.5` fold — open, diagnostic in progress (2026-09-09)
+
+The one missing point. `test/scratch/_probe_p028.jl` re-runs it at `h0=0.05, hmin=1e-6,
+maxit=60` and, if that also folds, brackets with `×0.6` then `×0.75` to locate the boundary.
+**Not yet resolved** — stopped mid-run at the user's request. State at the stop:
+
+- `t = 0` solves cleanly under the perturbed calibration (`status=converged, ‖F‖∞=1.43e-9`),
+  so the recalibration is consistent and the obstruction is on the path, not at the origin.
+- Accepted steps cost ~25-37s each and converge in 3-4 Newton iterations: `t=0.05, 0.15, 0.35,
+  0.55` with `h` growing 0.05 → 0.1 → 0.2.
+- First rejection at `t=0.75` (`maxit`, ‖F‖∞=0.018), `h` halved to 0.2 — consistent with the
+  original run's stall at `t = 0.6426`.
+- Trace preserved at `logs/p028_2026-09-09_1555_stopped.log` (gitignored).
+
+**Evidence so far favours a genuine fold over a stepping limit.** At ~27s/step, the two earlier
+attempts (71 min and 2h45m) represent ~150 and ~350 steps — far more than the handful of easy
+steps the path needs when it is passable, so those runs were burning failed solves against a
+barrier, not making slow progress. Expected time to a `hmin` collapse verdict from a fresh
+start is ~1.5-3h: a rejection runs the full `maxit=60` and so costs several times an accepted
+step, and ~19 halvings separate `h ≈ 0.4` from `hmin = 1e-6`.
+
+**Observability, three defects deep — do not regress these.** The first two attempts produced
+*no* recoverable trace, because a force-kill discards Julia's stdout buffer. Getting a live
+trace required all three of: `flush(stdout)` in the probe (commit `7d8e919`), `verbose = true`
+on the `run_model!` call (commit `72d78d3`), and a per-line flush inside `run_model!`'s own
+`log` closure (commit `d22dbea`). Fixing any two of the three still leaves a silent log.
 **Design written:** `V8_ELASTICITY_SENSITIVITY.md`, 2026-08-01 — traces all 6 elasticity
 groups (SLAB/P028/P015/SMAR/SCET/P018) from source to consumption, recommends a group-level
 (not per-sector) ±50% one-at-a-time sweep against `COALPRICE_REFERENCE` (13 solves ≈ 1-1.5h),
