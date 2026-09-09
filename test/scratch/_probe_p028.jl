@@ -24,8 +24,12 @@ function attempt(agg6, params, factor, label; kw...)
     # is unobservable — which is exactly what happened on the 2026-09-08 launch.
     flush(stdout)
     t0 = time()
+    # verbose = true is load-bearing, not noise. With it off run_model! prints nothing
+    # per accepted step, so a multi-hour attempt is indistinguishable from a hang no
+    # matter how much the probe's own output is flushed -- which is what the
+    # 2026-09-09 rerun ran into after the flush fix had already landed.
     res = run_model!(agg2, p2, COALPRICE_REFERENCE;
-                     tol = 1e-8, gdp = false, verbose = false, kw...)
+                     tol = 1e-8, gdp = false, verbose = true, kw...)
     dt = time() - t0
     if res.solved
         @printf("   SOLVED in %.0fs, residual %.2e\n", dt, res.residual)
