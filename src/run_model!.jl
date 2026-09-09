@@ -179,7 +179,11 @@ function run_model!(agg, params::Dict{String,Any};
                     tol::Float64 = 1e-8, maxit::Int = 30, grow_iters::Int = 4,
                     report = (), gdp::Bool = true, verbose::Bool = true,
                     arclength::Bool = true, numeraire::Symbol = :gdppi)
-    log(msg) = verbose && println(msg)
+    # Flush per line. Julia block-buffers stdout when it is redirected to a file, so an
+    # unflushed log leaves a multi-hour homotopy walk indistinguishable from a hang --
+    # the buffer only reaches disk when the process exits, which is precisely when the
+    # progress trace has stopped being useful. Costs one syscall per logged line.
+    log(msg) = verbose && (println(msg); flush(stdout))
 
     log("="^72)
     log("run_model!  —  $name")
