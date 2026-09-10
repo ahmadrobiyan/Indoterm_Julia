@@ -874,26 +874,66 @@ point + 6 elasticity groups × {×0.5, ×1.5}), reusing `cached_pipeline(6)` and
 numbered gates (Phase 3, "expensive or blocked") — each sweep point is a full solve, and every
 cheaper gate (V1-V7, V9) is a precondition for this one meaning anything.
 
-#### The `P028 ×0.5` fold — open, diagnostic in progress (2026-09-09)
+#### The `P028 ×0.5` fold — open; the arclength verdict is NOT usable (2026-09-10)
 
 The one missing point. `test/scratch/_probe_p028.jl` re-runs it at `h0=0.05, hmin=1e-6,
-maxit=60` and, if that also folds, brackets with `×0.6` then `×0.75` to locate the boundary.
-**Not yet resolved** — stopped mid-run at the user's request. State at the stop:
+maxit=60` and brackets with `×0.6` then `×0.75`. **Still unresolved.** Completed verdicts:
 
-- `t = 0` solves cleanly under the perturbed calibration (`status=converged, ‖F‖∞=1.43e-9`),
-  so the recalibration is consistent and the obstruction is on the path, not at the origin.
-- Accepted steps cost ~25-37s each and converge in 3-4 Newton iterations: `t=0.05, 0.15, 0.35,
-  0.55` with `h` growing 0.05 → 0.1 → 0.2.
-- First rejection at `t=0.75` (`maxit`, ‖F‖∞=0.018), `h` halved to 0.2 — consistent with the
-  original run's stall at `t = 0.6426`.
-- Trace preserved at `logs/p028_2026-09-09_1555_stopped.log` (gitignored).
+| case | natural-parameter continuation | arclength fallback |
+|---|---|---|
+| `P028 ×0.5`  | `⛔` `hmin` collapse at `t = 0.642648`, 117 steps / 74 rejections, 10497s | `TURNED at λ ≈ -0.00836`, then `⛔ dsmin` at `λ = -7.3369` |
+| `P028 ×0.6`  | `⛔` `hmin` collapse at `t = 0.136084`, 200 steps / 73 rejections, 7325s  | `TURNED at λ ≈ -0.23744`, then `⛔ dsmin` at `λ = -7.2866` |
+| `P028 ×0.75` | running (2026-09-10) | — |
 
-**Evidence so far favours a genuine fold over a stepping limit.** At ~27s/step, the two earlier
-attempts (71 min and 2h45m) represent ~150 and ~350 steps — far more than the handful of easy
-steps the path needs when it is passable, so those runs were burning failed solves against a
-barrier, not making slow progress. Expected time to a `hmin` collapse verdict from a fresh
-start is ~1.5-3h: a rejection runs the full `maxit=60` and so costs several times an accepted
-step, and ~19 halvings separate `h ≈ 0.4` from `hmin = 1e-6`.
+**What the continuation result supports.** `t = 0` solves cleanly under the perturbed
+calibration (`status=converged, ‖F‖∞=1.43e-9`), so the recalibration is consistent and the
+obstruction is on the path, not at the origin. Accepted steps cost ~25-37s and converge in 3-4
+Newton iterations right up to the wall (`t=0.05, 0.15, 0.35, 0.55, 0.60, 0.625`), and failed
+residuals grow monotonically with overshoot (`6.5e-5` at t=0.65 → `2.96e-4` at 0.675 → `2.51e-3`
+at 0.70 → `0.0299` at 0.75). `t = 0.65` fails at essentially the same residual from three
+different step sizes (`6.316e-5`, `6.486e-5`, `6.497e-5`) — the failure is a property of the
+target point, not of the approach. Critical point bracketed at `0.625 < t* < 0.65`, reproducing
+the original run's `t = 0.6426` across two runs with different step settings.
+
+**What it does NOT support — the arclength fallback tripped its own documented trap.** The
+`TURNED`/`dsmin` verdicts must not be read as "the full shock does not exist at this
+elasticity." Four signatures, all pointing the same way:
+
+1. **The local coordinate locked onto a large accounting-type variable.** `arclength.jl` closes
+   the augmented system with `e_klocᵀ` and `nfun = z[kloc] - (z_prev[kloc] + ds*τ[kloc])` —
+   *local-parameter*, not true pseudo-arclength, so `λ` is unconstrained by `ds`. Here
+   `kloc = gro[2,3]`, driver value **542000.0**. Lines 366-390 of that file document this exact
+   failure mode, measured 2026-07-31: `kloc` locking onto a huge-valued variable makes
+   `ds*τ[kloc]` drag the corrector "to an unrelated root," the first accepted step moves `λ` the
+   wrong way, and "the reported turning point ... was nowhere near the documented fold ...
+   because the branch being traced was never the real one." The 2026-07-31 fix was aimed at
+   `del*` reporting variables; `gro` is not a `del*` and slipped past it.
+2. **The first accepted step is discontinuous.** `λ` jumps `0.2605714687 → -0.008359529365`
+   — a move of −0.269, *away* from the target 0.4054651 — at `ds = 1.22e-6` with `dλ/ds = 1.0`.
+   The step exceeds its own predicted `λ`-displacement by a factor of ~2e5. It reached that
+   point through nine rejected predictors whose residuals fall geometrically with `ds`
+   (`2.839e121 → 2.03e60 → 5.43e29 → 2.808e14 → 6.385e6 → 961.5 → 70.88 → 4.12 → 0.07438`),
+   every one of them rejected at `corrector it=1` with `SingularException`.
+3. **The post-turn family is frozen.** `‖F‖∞` is pinned at `4.598e-9` to four significant
+   figures across dozens of steps and a `λ` range of ~7.3, converging at `it=1` or `it=2`. A
+   solution set that does not respond to `λ` is not the physical branch.
+4. **Non-monotonicity.** `×0.6` — the *milder* perturbation — folds at `t=0.136`, far earlier
+   than `×0.5`'s `t=0.643`; and both arclength runs terminate near `λ ≈ -7.3` (a ~99.93% coal
+   price *collapse*). One common numerical attractor, not two independent economic findings.
+
+`arclength.jl`'s own guard says it: a fold cannot defeat this method, so a `TURNED` verdict from
+it means "suspect a bifurcation, a domain boundary, or a genuinely singular augmented system."
+
+**Reportable status of the missing point:** `P028 ×0.5` is *not attainable under this
+continuation*, `t_reached = 0.6426`. Not "the target does not exist." Two things must happen
+before any stronger claim: (a) `test/verify_scenario_complete.jl` against
+`COALPRICE_REFERENCE` — this project has already once reported a fold (`λ* = 0.9908083`) as a
+model property when it was an artifact of a *missing* shock (`TERM.CMF:113 delUnity=1`); and
+(b) the `kloc` selection in `arclength.jl` must exclude large-valued accounting variables the
+way the 2026-07-31 fix intended. **No `arclength.jl` change has been made** — the handoff bars
+refactoring solver code without agreement, and this is solver code.
+
+Full trace: `logs/p028.log` (gitignored). Earlier partial: `logs/p028_2026-09-09_1555_stopped.log`.
 
 **Observability, three defects deep — do not regress these.** The first two attempts produced
 *no* recoverable trace, because a force-kill discards Julia's stdout buffer. Getting a live
