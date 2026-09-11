@@ -2,6 +2,13 @@
 
 **Status: 🟡 Step 1 (gap audit) COMPLETE and passing, 2026-08-12. Step 2 blocked on data sourcing.**
 
+**⏸ PARKED 2026-09-12 (user decision).** Do not start Step 2 until BPS publishes the
+regional-side sources that §3.D lists as the hard limit — **IRIO 2020** and **SUT 2020**.
+Without them the result is a 2020-national / 2016-regional hybrid, and the decision is not to
+build that. The national-side downloads (§3.B/C, Transaksi Total and purchaser-price tables)
+are also on hold; nothing here is a prerequisite for the coal paper. Re-audit with
+`test/audit_io2020.jl` when a new BPS release appears, then revisit.
+
 Companion to `VV_PLAN.md`. The audit gate is [`test/audit_io2020.jl`](test/audit_io2020.jl) —
 read-only, writes nothing, ~40 s. Re-run it any time:
 
