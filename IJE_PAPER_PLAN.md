@@ -31,10 +31,13 @@ re-implementation with a public verification record (VV_PLAN.md).
 
 ## 2. New work required (in order)
 
-1. **Emissions/variable check** — confirm whether the model carries anything a
-   subsidy-reform or carbon extension could use. If yes, a second scenario
-   (fuel-subsidy or combined coal+oil shock) becomes the paper's novelty core;
-   if no, the paper stays an economic-incidence paper and must say so.
+1. **Emissions/subsidy check — DONE 2026-09-11, negative.** Zero hits for
+   `emission|co2|carbon|subsid` across `src/` and `origin/TERM.TAB`. Tax-revenue
+   `(change)` variables exist (`delTAXhou/inv/gov/exp` by commodity×source×
+   region, TERM.TAB:273-299) but no source `.CMF` ever shocks them and none is
+   validated as an instrument. **Decision: incidence paper, not subsidy/carbon.**
+   A fuel-subsidy or carbon extension would need new-instrument development plus
+   its own validation — weeks, and a second paper, not this one.
 2. **One new scenario** for novelty beyond replication (replication alone will
    not clear review). Candidate: combined coal+oil/gas price shock, or a
    counterfactual export-restriction sketch. Must run under
