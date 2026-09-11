@@ -883,7 +883,7 @@ maxit=60` and brackets with `×0.6` then `×0.75`. **Still unresolved.** Complet
 |---|---|---|
 | `P028 ×0.5`  | `⛔` `hmin` collapse at `t = 0.642648`, 117 steps / 74 rejections, 10497s | `TURNED at λ ≈ -0.00836`, then `⛔ dsmin` at `λ = -7.3369` |
 | `P028 ×0.6`  | `⛔` `hmin` collapse at `t = 0.136084`, 200 steps / 73 rejections, 7325s  | `TURNED at λ ≈ -0.23744`, then `⛔ dsmin` at `λ = -7.2866` |
-| `P028 ×0.75` | running (2026-09-10) | — |
+| `P028 ×0.75` | `⛔` `hmin` collapse at `t = 0.102435`, 55 steps / 72 rejections, 8795s | `TURNED at λ ≈ -0.07235`, then `⛔ dsmin` at `λ = -0.39660` |
 
 **What the continuation result supports.** `t = 0` solves cleanly under the perturbed
 calibration (`status=converged, ‖F‖∞=1.43e-9`), so the recalibration is consistent and the
@@ -934,6 +934,72 @@ way the 2026-07-31 fix intended. **No `arclength.jl` change has been made** — 
 refactoring solver code without agreement, and this is solver code.
 
 Full trace: `logs/p028.log` (gitignored). Earlier partial: `logs/p028_2026-09-09_1555_stopped.log`.
+
+#### Follow-up, 2026-09-11 — both suspected causes chased down
+
+**1. The scenario is complete. The "one line short" explanation is ruled out.**
+`test/verify_scenario_complete.jl` only ever covered `TERM_CMF_REFERENCE`, so it could not
+answer the question this fold raised. It now parses `origin/coalprice.CMF` as well, and checks
+**swaps** as well as shocks — a missing swap leaves a variable pinned that the source lets
+adjust, which can manufacture a fold just as readily as a missing shock. Swaps are compared as
+ordered pairs, because `apply_swaps!` takes `(endogenous, exogenous)` in that order and a
+transposed pair is a real defect a name-set comparison would wave through. Result: 1 shock and
+4 swaps, same variables, same orientation. `COALPRICE_REFERENCE` is a faithful transcription,
+so the `P028` obstruction is **not** the `λ* = 0.9908083` failure repeating.
+
+**2. The arclength defect is fixed, and the diagnosis moved while fixing it.** It is not really
+the `del*` mask. The metric `wt = 1/max(|vᵢ|, ε)` is built from `dz/dλ` **at the start point**,
+and this routine is only ever entered at an `hmin` collapse — i.e. exactly where `dz/dλ` is
+blowing up (measured `‖dz/dλ‖∞ = 5.91e6`). Normalising to `‖wt ⊙ τ‖∞ = 1` then makes the
+steering component's own displacement `ds·|v[kloc]|`, so at `ds = 1.22e-6` the closing row
+demanded a **7× jump in a scaled coordinate whose own value is ≈ 1**. The metric is not wrong —
+`ds·τ` genuinely is an arclength step of `ds` in it. What was missing is any bound on where the
+Euler **predictor** may land. Two guards added (`src/arclength.jl`, commit `3818824`):
+
+- **`trust = 0.25`** — no state component may move more than 25% of its own magnitude in one
+  predicted step; `ds` shrinks to enforce it. This can push `ds` below `dsmin`, deliberately:
+  near a real fold the state moves a great deal while `λ` barely moves, so honest continuation
+  there *is* slow. §1's weighting bought its speed by taking steps the tangent did not justify.
+- **`jumpmax = 8.0`** — an accepted step whose actual `λ` move exceeds its predicted one by more
+  than 8× is rejected as a branch jump. The closing row pins one coordinate and leaves `λ` free,
+  so `F = 0` plus the closing equation does **not** imply the corrector stayed on the branch it
+  started from. This is the direct catch for `Δλ = −0.269` against a predicted `1.22e-6`.
+
+**Regression: `test/verify_arclength_fallback.jl` passes.** On the `TERM_CMF_NO_DELUNITY`
+fixture — a fold that genuinely exists — the trust region fires **26 times**, the discontinuity
+guard fires **0 times**, and the run still locates the documented fold at `λ* = 0.9908086`
+against an expected `0.9908083`. Active but not obstructive, and no false positives on a real
+traversal. `logs/arclength_regression_2026-09-10.log`.
+
+**One earlier suspicion was weak evidence and is withdrawn.** The `‖F‖∞` pinned at `4.598e-9`
+across many steps was listed above as a signature of a frozen, non-physical family. The
+regression run pins `‖F‖∞` at `2.258e-10` the same way across ~200 steps while tracking a fold
+whose location is independently known to 7 digits. A constant converged residual under small
+steps is normal, not diagnostic. The other three signatures — the discontinuous first step, the
+`kloc` magnitude, and the non-monotone fold locations — stand on their own.
+
+**3. The fold locations are not monotone in the elasticity, which wants explaining.**
+
+| `P028` factor | `t` reached |
+|---|---|
+| `×0.5`  | 0.6426 |
+| `×0.6`  | 0.1361 |
+| `×0.75` | 0.1024 |
+| `×1.0`  | 1.0 (solves; it is one of the 12 completed V8 points) |
+
+The *mildest* perturbations stop earliest, and the most extreme one gets six times further.
+For a smooth family of models that ordering is hard to read as "low substitution elasticities
+make the shock economically infeasible." It does not overturn the `×0.5` continuation result —
+`t = 0.65` fails at essentially identical residual from three different step sizes, which is a
+property of that point — but it does mean the *family-level* story ("the lower half of the
+`P028` range is unreachable") has no support, and `test/scratch/_probe_p028.jl`'s own
+"Hypothesis B" conclusion must not be quoted. Open question, not a finding.
+
+**Validation in progress:** `test/scratch/_probe_arclength_guards.jl` re-runs `P028 ×0.75` —
+the cheapest case that reaches the handover — under the patched routine, to confirm the guards
+convert that `TURNED`/"does not exist" verdict into either a reached target or an honest
+`dsmin` collapse. `logs/arclength_guards_2026-09-11.log`.
+
 
 **Observability, three defects deep — do not regress these.** The first two attempts produced
 *no* recoverable trace, because a force-kill discards Julia's stdout buffer. Getting a live
