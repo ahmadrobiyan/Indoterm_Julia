@@ -165,12 +165,23 @@ Keyword arguments:
 - `grow_iters` grow `ds` after a step that converged in at most this many
   corrector iterations (default `4`).
 - `report`  variable names (or `(name, i, j)` tuples) to print each step.
+- `trust`   predictor trust region (default `0.25`): no state component may move
+  more than this fraction of its own magnitude in one Euler predictor step. The
+  §1 metric is anisotropic enough that a metrically tiny `ds` can demand a
+  several-fold physical jump once `dz/dλ` blows up, which is exactly the state
+  this routine is handed. Raise it only with a measured reason.
+- `jumpmax` discontinuity tolerance (default `8.0`): an accepted step whose actual
+  λ displacement exceeds its predicted one by more than this factor is rejected as
+  a branch jump, not recorded as progress. The closing row pins one coordinate and
+  leaves λ free, so `F = 0` plus the closing equation does NOT imply the corrector
+  stayed on the branch it started from.
 """
 function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
                           shock_vr::JuMP.VariableRef, target::Float64;
                           ds0::Float64=0.005, dsmin::Float64=1e-7, dsmax::Float64=0.02,
                           tol::Float64=1e-8, maxit::Int=20, maxsteps::Int=200,
-                          grow_iters::Int=4, report=(), verbose::Bool=true)
+                          grow_iters::Int=4, report=(), verbose::Bool=true,
+                          trust::Float64=0.25, jumpmax::Float64=8.0)
     # flush(stdout) is NOT optional here. Julia block-buffers stdout when it is
     # redirected to a file, so without it a run of this length is completely
     # opaque: an empty log looks identical to a hung job, and the only way to find
@@ -444,15 +455,59 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
     while nsteps < maxsteps
         z_prev = copy(z); tau_prev = copy(tau); lam_prev = lam_of(z)
 
-        # If this step would carry λ past the target, finish with an exact
-        # natural-parameter landing instead: close with μ = μ*.
-        lam_pred = lam_prev + ds * tau[N+1] * lscale
-        land = (target - lam_prev) * (target - lam_pred) <= 0
-
         # Local coordinate: the largest tangent component. At a fold the tangent IS
         # the null direction of J, so its argmax is exactly the index that keeps
         # the augmented matrix nonsingular there.
         kloc = locidx(tau)
+
+        # ── predictor trust region ────────────────────────────────────────
+        # `ds` is measured in the response-weighted metric of §1, and that metric is
+        # valid but extremely anisotropic: `wt` is built from `v = dz/dλ` at the
+        # START point, so `‖wt⊙τ‖∞ = 1` makes the steering component's own
+        # displacement `ds·τ[kloc] = ds·|v[kloc]|`. When the start point is already
+        # near-singular — which is precisely when this routine gets called, since
+        # natural-parameter continuation hands over at an `hmin` collapse — `|v|`
+        # blows up and a metrically tiny `ds` becomes an enormous physical move.
+        #
+        # Measured 2026-09-10 (`logs/p028.log`, P028 ×0.5): `‖dz/dλ‖∞ = 5.91e6` at
+        # the handover, `kloc = gro[2,3]`, and at `ds = 1.22e-6` the closing row
+        # demanded δ ≈ 7.2 in a SCALED coordinate whose own value is ≈ 1 — a 7× jump
+        # in one "infinitesimal" step. Nine predictors before it were rejected with
+        # `SingularException` at `corrector it=1`, residuals falling geometrically
+        # 2.839e121 → 0.07438, which is the signature of a predictor thrown far
+        # outside the radius where the tangent means anything. The corrector then
+        # converged — onto a different root.
+        #
+        # A metric cannot fix this, because the metric is not wrong: ds·τ IS an
+        # arclength step of ds in it. What is missing is a bound on where the Euler
+        # PREDICTOR may land, which is a trust region and belongs here rather than
+        # in the norm. Cap the relative displacement of every state component; `z`
+        # is cscale-normalised, so `max(|z_i|,1)` is the component's own magnitude
+        # and `trust` reads directly as "no variable may move more than 25% of
+        # itself in one predicted step".
+        #
+        # This can force `ds` below `dsmin`, and that outcome is deliberate. Near a
+        # genuine fold the branch really does move the state a great deal while λ
+        # barely moves; honest continuation there is slow, and §1's weighting bought
+        # its speed by taking steps the tangent did not justify. A `dsmin` collapse
+        # reported as such is a usable negative result. A turning point reported off
+        # a discontinuous jump is not — see the P028 ×0.5 entry in VV_PLAN.md.
+        dsprev = ds
+        @inbounds for i in 1:N
+            ti = abs(tau[i])
+            ti > 0 || continue
+            cap = trust * max(abs(z_prev[i]), 1.0) / ti
+            cap < ds && (ds = cap)
+        end
+        ds = max(ds, dsmin)
+        ds < dsprev && say("     trust region: ds $(round(dsprev; sigdigits=3)) → " *
+                           "$(round(ds; sigdigits=3)) (predictor would move a state " *
+                           "component >$(round(100trust; digits=0))% of itself)")
+
+        # If this step would carry λ past the target, finish with an exact
+        # natural-parameter landing instead: close with μ = μ*.
+        lam_pred = lam_prev + ds * tau[N+1] * lscale
+        land = (target - lam_prev) * (target - lam_pred) <= 0
 
         zc = copy(z)
         if land
@@ -571,6 +626,42 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
                 say("     it=$it: no merit decrease down to α=$(round(α; sigdigits=3)) " *
                     "(zeroed $nzeroed at-bound component(s)) — rejecting step")
                 break
+            end
+        end
+
+        # ── discontinuity guard ──────────────────────────────────────────
+        # The closing row pins ONE coordinate, so λ is unconstrained by `ds`: a
+        # corrector that wanders to a different connected component still satisfies
+        # F = 0 and the closing equation, and is accepted. Nothing downstream can
+        # tell the difference, and the turning-point test then compares tangents on
+        # two unrelated branches.
+        #
+        # Measured 2026-09-10 (P028 ×0.5): the first accepted step moved λ
+        # 0.2605714687 → -0.008359529365 — −0.269, AWAY from the target 0.4054651 —
+        # at ds = 1.22e-6 with dλ/ds = 1.0, overshooting its own predicted
+        # λ-displacement by a factor of ~2e5. `TURNING POINT` was announced on the
+        # very next line. This is the same class of failure as the 2026-07-31
+        # `delPGDPEXP[2,1]` run recorded above; the name-based `flowmask` fixed only
+        # the `del*` instance of it.
+        #
+        # Continuity is what makes a continuation a continuation, so check it: an
+        # accepted step whose actual λ move exceeds its predicted one by more than
+        # `jumpmax` did not follow the branch, whatever its residual says. Treat it
+        # as a rejection so `ds` halves and the predictor gets shorter — and if that
+        # never helps, the run ends at `dsmin`, honestly.
+        if ok && !land
+            dlam_pred = ds * tau[N+1] * lscale
+            dlam_act  = lam_of(zc) - lam_prev
+            floorlam  = 1e-12 * max(abs(lam_prev), 1.0)
+            if abs(dlam_act) > jumpmax * max(abs(dlam_pred), floorlam)
+                say("  ⚠ DISCONTINUOUS step rejected at λ=$(round(lam_prev; sigdigits=10)): " *
+                    "corrector landed at λ=$(round(lam_of(zc); sigdigits=10)) " *
+                    "(Δλ=$(round(dlam_act; sigdigits=4)) vs predicted " *
+                    "$(round(dlam_pred; sigdigits=4)), ratio " *
+                    "$(round(abs(dlam_act)/max(abs(dlam_pred), floorlam); sigdigits=3))) — " *
+                    "F=0 and the closing row are both satisfied, but this is not the " *
+                    "same branch. Coordinate was $(coordname(kloc)).")
+                ok = false
             end
         end
 
