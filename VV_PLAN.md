@@ -20,9 +20,14 @@ The distinction this file is organised around is the standard one:
 - **Validation** — did we build the *right* model? Do its magnitudes deserve to be
   believed by someone making a decision?
 
-Current honest position: **verification is good and nearly complete; validation has barely
-started.** The gates below would catch a broken translation. They would not catch a subtly
-wrong one, and they say nothing about credibility of magnitudes.
+Current honest position (2026-09-11): **verification is complete as far as it goes —
+every checkable gate has a verdict. Validation is substantially underway, not
+barely started:** V9 validates against the original authors' published results,
+V8 puts elasticity intervals on every headline number, V5 closes the income-side
+identity to 0.7%, and V4's six rounds quantify exactly which regional claims are
+robust and which are not. What validation still lacks is a second external
+reference point (V9 route 2 is permanently out of reach) and any post-2016 data
+vintage — magnitudes remain conditional on the 2016 database, stated as such.
 
 ---
 
