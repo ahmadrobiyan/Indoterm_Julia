@@ -78,7 +78,7 @@ that re-check the same configuration more precisely.
 | V5 Income-side GDP decomposition | 🟢 PASSED, 2026-08-02 | `test/verify_multiplier.jl`, rewritten — the old one-factor predictor (labour share × 3%) omitted the capital and employment channels `TERM_CMF_REFERENCE` deliberately switches on, so its 260% "error" was measuring a wrong predictor, not a model defect. Replaced with the income-side identity `Δln(RealGDP) ≈ s_L·(Δln L + a) + s_K·Δln K + s_LND·Δln LND`, reading `Δln L`/`Δln K` off the solved model (`NatMacro("AggEmploy")`/`NatMacro("AggCapStock")`) instead of assuming them fixed. Result: predicted +5.5144% vs measured +5.5567%, residual 0.7% (vs the retired test's 260%). See V5 section body for the `xlnd`-double-weighting bug caught and fixed en route (first attempt produced a nonsense 3.86e6% "land change" from treating a flow variable as a benchmark=1 index). |
 | V6 Closure ordering | 🔴 PARKED — fold confirmed genuine 2026-09-11 (200 clean steps, same 6-digit λ*), ordering not established for this scenario; see V6 section | `test/verify_closure_ordering.jl`: long-run leg solves cleanly every time (both `TERM_CMF_SWAPS` and the matched `TERM_LR_SWAPS_MATCHED`), ~3–7 min. Short-run leg (`TERM_SR_SWAPS`)'s Stage B folds at λ*≈0.9998 across THREE attempts — full shock, 30×-smaller shock, and a labour-matched long-run comparator — ruling out both "shock too large" and "mismatched closure pair" as the sole cause. 2026-09-11 re-challenge through patched arclength steering reproduced the same 6-digit λ* over 200 clean converged steps — the fold is genuine, not a steering artifact (the old λ≈1.0277 excursion is retired as artifact). No further solver time: the short-run closure genuinely cannot sustain this shock. Report as "ordering not established for this scenario," not as a pass or a translation defect — see V6 section body, "What this means for publication." |
 | V7 Regression suite | 🟢 written and passing, 2026-07-31 | `test/runtests.jl`: V9 31/31, V2 67667/67667, both green from a clean run. Wraps V9+V2 only (the two ungated passes); V1/V3/V4/V5/V6/V8 excluded, see V7 section. |
-| V8 Elasticity sensitivity | 🟤 CLOSED 2026-09-11, done-with-limits — 12 of 13 points | `test/sensitivity.jl` — 6 elasticity groups x {x0.5, x1.5} + centre against `COALPRICE_REFERENCE`. Centre 113s, residual 4.19e-09; perturbed points 64-105s. **All 10 headline metrics sign-stable**, table in `analysis/output/v8_sensitivity.csv`, per-point matrix in `v8_sensitivity_points.csv`. Two caveats carry into any citation of the range. (a) `P028 x0.5` folded at t = 0.6426 (205 steps, 14 rejections, 2276s) and is absent, so min/max is a **lower bound** — the omitted point is the one the model found hardest, not a random draw. (b) `SCET` is **inert in this aggregation**: the 6-region make matrix is fully diagonal (0 of 150 industry x region CET nests are multi-product), so alpha = 1 regardless of sigma and only a units scalar moves — two of the 13 solves widen nothing. Effective coverage is 5 of 6 groups. Running the sweep also found and fixed a defect that made it meaningless: it perturbed elasticities AFTER calibration, so CES share parameters stayed fitted to the old sigma (`P015 x0.5` failed benchmark replication at 20.1). Perturbation now precedes `prepare_parameters!`. Verified coupling: P015 -> ALPHA/GAMMA_ARMINT, P028 -> ALPHA/GAMMA_FAC, SLAB -> ALPHA/GAMMA_LAB, SCET -> GAMMA_MAKE only, SMAR and P018 equation-only. Gate correctly reports **no ✅** while a point is incomplete. |
+| V8 Elasticity sensitivity | 🟤 CLOSED 2026-09-11, done-with-limits — 12 of 13 points | `test/sensitivity.jl` — 6 elasticity groups x {x0.5, x1.5} + centre against `COALPRICE_REFERENCE`. Centre 113s, residual 4.19e-09; perturbed points 64-105s. **All 10 headline metrics sign-stable**, table in `analysis/output/v8_sensitivity.csv`, per-point matrix in `v8_sensitivity_points.csv`. Two caveats carry into any citation of the range. (a) `P028 x0.5` folded at t = 0.6426 (205 steps, 14 rejections, 2276s) and is absent, so min/max is a **lower bound** — the omitted point is the one the model found hardest, not a random draw. (b) `SCET` is **inert in this aggregation**: the 6-region make matrix is fully diagonal (0 of 150 industry x region CET nests are multi-product), so alpha = 1 regardless of sigma and only a units scalar moves — two of the 13 solves widen nothing. Effective coverage is 5 of 6 groups. Running the sweep also found and fixed a defect that made it meaningless: it perturbed elasticities AFTER calibration, so CES share parameters stayed fitted to the old sigma (`P015 x0.5` failed benchmark replication at 20.1). Perturbation now precedes `prepare_parameters!`. Verified coupling: P015 -> ALPHA/GAMMA_ARMINT, P028 -> ALPHA/GAMMA_FAC, SLAB -> ALPHA/GAMMA_LAB, SCET -> GAMMA_MAKE only, SMAR and P018 equation-only. **2026-09-11 follow-up:** an elasticity-path continuation (full shock held, σ_prim walked 1.0→0.5·σ₀) is OBSTRUCTED at `f = 0.95` with a near-singular-Jacobian stall (200-iteration verbose trace), so the missing point has no solution along either the shock path or the elasticity path — see follow-up §4. Gate moved to `nongating` 2026-09-12. |
 | ~~V9 route 2 (independent GEMPACK re-run)~~ | 🔴 DROPPED, 2026-08-01 — no GEMPACK licence available, permanently out of reach | V9 route 1b (draftreport.pdf comparison) already PASSED and stands as the project's external validation; see "Two routes" above |
 
 Per "Revised guidance for the remaining phases" below, V2/V6/V4 are the next priority once the
@@ -1030,6 +1030,53 @@ collapsed to `dsmin` with **no `TURNED` line**. The guards do exactly what they 
 written for on the case that motivated them: no false turning point, honest collapse.
 The missing V8 point stays reported as not-attainable-under-this-continuation; the
 `TURNED`/"does not exist" verdicts in the table above remain withdrawn, not replaced.
+
+**4. Elasticity continuation, 2026-09-11 — the second path also fails. OBSTRUCTED at `f = 0.95`.**
+Every attempt above walked the *shock* at fixed low σ. `test/scratch/_probe_p028_sigma_continuation.jl`
+walks the *elasticity* instead: start at the ×1.0 shocked equilibrium (the V9-validated point,
+solved in 3 steps), hold the full coal shock fixed, and step the `P028` multiplier `f` from 1.0
+towards 0.5 — rebuilding and re-calibrating `ALPHA/GAMMA_FAC` at each `f`, checking benchmark
+replication at each `f`, and warm-starting Newton from the previous `f`'s solution
+(`logs/p028_sigma_continuation_2026-09-11.log`, 23 min).
+
+| `f` tried | benchmark `‖F‖∞` | shocked solve | `‖F‖∞` at cap (maxit 30) |
+|---|---|---|---|
+| 0.95   | 1.4e-9 | ✅ 5 it, 2.8e-9 | — |
+| 0.90   | ok | ✗ maxit | 4.2e-2 |
+| 0.90   | ok | ✗ maxit | 3.2e-3 (from f=0.95) |
+| 0.925  | ok | ✗ maxit | 1.7e-3 |
+| 0.9375 | ok | ✗ maxit | 8.9e-4 |
+| 0.9437 | ok | ✗ maxit | 1.0e-4 |
+
+Step in `f` collapsed below 0.005 at `f = 0.95`. The residual-at-cap shrinking with the step
+was first read as slow damped progress (solver budget). That reading is **wrong**:
+`test/scratch/_probe_p028_sigma_point.jl` re-ran `f = 0.9375` with `maxit = 200`, verbose
+(`logs/p028_sigma_point_0.9375.log`, 1115 s). Result `status=maxit, ‖F‖∞ = 1.111e-3`; the
+residual parks at 1.27e-3 (it 29) → 1.11e-3 (it 200) while every late iteration reports
+`LU step |d| ≈ 3.0e5 exceeds trust radius < 3 — using damped CGNR`. An undamped Newton
+direction of ~3e5 confined to steps < 1 is a near-singular-Jacobian signature, not a budget
+problem. Benchmark replication at `f = 0.9375` is 1.4e-9, so it is not a calibration defect.
+
+**Standing.** Two independent continuation paths fail to reach `σ_prim = 0.5·σ₀`:
+
+| path | held fixed | walked | reached |
+|---|---|---|---|
+| shock path (V8 sweep) | `σ = 0.5·σ₀` | shock `t`: 0 → 1 | `t = 0.6426` |
+| elasticity path | full shock | `f`: 1.0 → 0.5 | `f = 0.95` |
+
+The wording upgrades from "not attainable under this continuation" to **"no solution found
+along either the shock path or the elasticity path; lowest σ multiple reached at full shock is
+`f = 0.95`"**. 12/13 stands as the final V8 result and the range stays a lower bound. *Why* the
+shocked equilibrium cannot be tracked more than ~5% below the calibrated `σ_prim` (fold vs.
+bifurcation vs. CES calibration at low σ) is not settled; the non-monotone fold table in §3
+remains an open question. No further `P028` compute is authorized without a new hypothesis.
+Headline row at `f = 0.95` for the record: Real HousCon +0.966 | Real Invest +0.867 |
+Export vol −3.933 | Import vol +1.728 | Real GNE +0.811 | Real GDP −0.216 | Employment −0.343 |
+CPI +1.426 | Coal output +2.223 | Coal employ +14.223.
+
+`test/gates.tsv`: V8 row moved `full → nongating` (2026-09-12). The gate correctly reported ❌
+while a point was incomplete; with V8 closed at 12/13, a permanent ❌ under `run_gates.sh full`
+no longer carries information.
 
 
 **Observability, three defects deep — do not regress these.** The first two attempts produced

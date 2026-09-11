@@ -25,7 +25,7 @@ full	test/verify_multiplier.jl	marker	V5	income-side GDP decomposition
 full	test/verify_homogeneity_tol.jl	marker	9	price homogeneity of degree zero
 full	test/verify_arclength_fallback.jl	marker	7a	arclength fallback regression
 full	test/verify_swapped_closure.jl	marker	7	swapped closure solves
-full	test/sensitivity.jl	marker	V8	elasticity sensitivity sweep (13 solves)
 # --- known-open, deliberately NOT gating (see VV_PLAN.md) ---
 nongating	test/verify_aggregation_consistency.jl	marker	V4	CLOSED as disclosed limitation
+nongating	test/sensitivity.jl	marker	V8	CLOSED 12/13 with limits; P028 x0.5 unreachable on both paths
 nongating	test/verify_closure_ordering.jl	marker	V6	TIME-BOXED, unresolved
