@@ -970,6 +970,10 @@ fixture — a fold that genuinely exists — the trust region fires **26 times**
 guard fires **0 times**, and the run still locates the documented fold at `λ* = 0.9908086`
 against an expected `0.9908083`. Active but not obstructive, and no false positives on a real
 traversal. `logs/arclength_regression_2026-09-10.log`.
+**Re-run 2026-09-11 on the merged tree: identical.** Trust region 26 fires,
+discontinuity guard 0, `TURNED at λ ≈ 0.9908085833`, final `‖F‖∞ = 2.258e-10`,
+204 steps / 10 rejections, 43.3 min, `✅` plumbing verdict.
+`logs/arclength_regression_2026-09-11.log`.
 
 **One earlier suspicion was weak evidence and is withdrawn.** The `‖F‖∞` pinned at `4.598e-9`
 across many steps was listed above as a signature of a frozen, non-physical family. The
