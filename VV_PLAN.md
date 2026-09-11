@@ -995,10 +995,18 @@ property of that point — but it does mean the *family-level* story ("the lower
 `P028` range is unreachable") has no support, and `test/scratch/_probe_p028.jl`'s own
 "Hypothesis B" conclusion must not be quoted. Open question, not a finding.
 
-**Validation in progress:** `test/scratch/_probe_arclength_guards.jl` re-runs `P028 ×0.75` —
-the cheapest case that reaches the handover — under the patched routine, to confirm the guards
-convert that `TURNED`/"does not exist" verdict into either a reached target or an honest
-`dsmin` collapse. `logs/arclength_guards_2026-09-11.log`.
+**Validation completed, 2026-09-11 — PASS (outcome 2+3 combined).**
+`test/scratch/_probe_arclength_guards.jl` re-ran `P028 ×0.75` under the patched
+routine (`logs/arclength_guards_2026-09-11.log`, 166 min). Continuation reproduced
+the baseline exactly (`⛔ hmin` at `t = 0.102435`, 55 steps / 72 rejections). At the
+handover the trust region fired immediately (`ds 0.005 → 1e-7` — the predictor would
+have moved a state component >25% of itself), the corrector then converged to `F = 0`
+but landed at `Δλ = −0.0037` against a predicted `1e-7` (ratio 37400, coordinate
+`pcap[2,3]`) — and the discontinuity guard **rejected it as a branch jump**. `ds`
+collapsed to `dsmin` with **no `TURNED` line**. The guards do exactly what they were
+written for on the case that motivated them: no false turning point, honest collapse.
+The missing V8 point stays reported as not-attainable-under-this-continuation; the
+`TURNED`/"does not exist" verdicts in the table above remain withdrawn, not replaced.
 
 
 **Observability, three defects deep — do not regress these.** The first two attempts produced
