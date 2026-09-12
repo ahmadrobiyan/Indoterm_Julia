@@ -206,3 +206,23 @@ Probe: `test/scratch/_probe_condense.jl` (untracked scratch). Logs: `logs/` (git
   included). Seam + bordered-LU edits remain explicitly UNAUTHORISED —
   user must lift the `src/` restriction first. Nothing pushed (3+ commits
   ahead of origin/master).
+
+## 2026-09-13 — Stage 2a seam built; equivalence PROVEN at 6 regions
+- `src/schur_linsolve.jl` (new): plan builder + triangular solve + 2-step
+  refinement; `nothing` on any failure so callers keep old fallbacks.
+- Seam: `linsolve::Symbol=:lu` kwarg on `solve_newton!`/`run_model!`/
+  `continuation_solve!`; default path structurally identical; `:schur` only
+  diverts the first-try direction (full J_s LU skipped). Exact/lin_rel gate,
+  CGNR fallback, trust region untouched and method-agnostic.
+- Two real bugs caught en route: (1) top-level docstring before `include`
+  kills scratch scripts (parse error); (2) `JuMP.name(vr)` gives indexed names
+  ("xtradmar[1,...]") — plan matched zero columns, every iteration silently
+  degraded to CGNR with bit-identical stalls. Fixed with vars-dict family keys
+  (`fam_nowfree`) + loud println on Schur fallback. Floor locked at 1e-3
+  (sweep: verifies 7.5e-7 gate-clean at fill 7.62 vs 10.97).
+- Equivalence at 6 regions (`logs/seam_equiv_2026-09-13c.log`,
+  `logs/seam_paths_2026-09-13.log`): benchmark bit-identical (1.4260876923799515e-9
+  both); COALPRICE headlines agree to 3.1e-13; path independence under :schur
+  8.3e-7 (< 1e-6 bar); schur-vs-lu same path 6.0e-9.
+- Remaining Stage 2a: bordered routing in `src/arclength.jl` (3 lu sites),
+  then gate sweep under :schur.
