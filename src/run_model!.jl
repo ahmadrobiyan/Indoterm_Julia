@@ -178,7 +178,8 @@ function run_model!(agg, params::Dict{String,Any};
                     h0::Float64 = 0.25, hmin::Float64 = 1e-4, hmax::Float64 = 1.0,
                     tol::Float64 = 1e-8, maxit::Int = 30, grow_iters::Int = 4,
                     report = (), gdp::Bool = true, verbose::Bool = true,
-                    arclength::Bool = true, numeraire::Symbol = :gdppi)
+                    arclength::Bool = true, numeraire::Symbol = :gdppi,
+                    linsolve::Symbol = :lu)
     # Flush per line. Julia block-buffers stdout when it is redirected to a file, so an
     # unflushed log leaves a multi-hour homotopy walk indistinguishable from a hang --
     # the buffer only reaches disk when the process exits, which is precisely when the
@@ -208,7 +209,7 @@ function run_model!(agg, params::Dict{String,Any};
     end
 
     # ── Gate: the closed model must still reproduce its own base year ────────
-    r0 = solve_newton!(m, vars; maxit=5, tol=tol, verbose=false)
+    r0 = solve_newton!(m, vars; maxit=5, tol=tol, verbose=false, linsolve=linsolve)
     log("benchmark: status=$(r0.status)  ‖F‖∞=$(r0.residual)")
     r0.residual <= tol || error(
         "benchmark solve failed under this closure (‖F‖∞ = $(r0.residual) > $tol). " *
@@ -264,7 +265,8 @@ function run_model!(agg, params::Dict{String,Any};
         s_try = min(1.0, s + h)
         snap = _snapshot_starts(m)
         _set_t!(s_try)
-        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=false)
+        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=false,
+                                          linsolve=linsolve)
 
         if r.residual <= tol
             nsteps += 1; s = s_try; res = r.residual; vals = r.values

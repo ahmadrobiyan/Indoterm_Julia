@@ -85,6 +85,29 @@ Probe: `test/scratch/_probe_condense.jl` (untracked scratch). Logs: `logs/` (git
 - Launcher note: `Start-Process` prints `Unknown: ChildProcess.kill` but the julia child
   survives (verified: PID live, CPU accumulating, log files created).
 
+## 2026-09-13 ~01:00 — HALTED by user. v3 run killed before doing work
+
+- User said "hold on, i am not telling you to do anything": all autonomous work stopped.
+- Killed the just-launched v3 n=6 run (PID 32116, created 00:59:04, still in startup,
+  0-byte log) after verifying by parent PID + creation time it was mine. User processes
+  25112 (parent 26256, since 9/12 11:49) and 32208 (parent 15628, since 9/13 00:44)
+  untouched. Machine clock is 2026-09-13 ~01:00 (logs stamped 9/12 are same session).
+- Uncommitted work left in tree: HANDOFF-2026-09-12.md edit, SCALE34_STAGE1_NOTES.md
+  (new), test/scratch/_probe_condense.jl v3 rewrite (propagate + sdeg-ordered HK,
+  parse-checked, NEVER RUN). Awaiting user instructions; nothing running.
+
+## 2026-09-13 ~01:05 — HANDED OVER to Hermes. All plans cancelled, waiting
+
+- User: Hermes has taken over Stage 1. All my plans cancelled. Waiting for instructions.
+- Nothing running (verified: only user PIDs 25112, 32208 exist).
+- For Hermes: uncommitted tree state = HANDOFF-2026-09-12.md (authorization notes),
+  SCALE34_STAGE1_NOTES.md (this full record), test/scratch/_probe_condense.jl v3
+  (untested). Key open item: (R,S) pairing still cycles (PRIMARY 1,556 nodes in
+  xtrad/xtradmar; FULL 1,225 in 7 families) — margin-sibling rotation, needs exact
+  defining rows (positional blocks per HANDOFF §3.2a) or the v3 propagation idea.
+  Measured facts worth reusing: HK = 100% matching in <0.1s; n=6 census + block sizes
+  in logs/condense_2026-09-12_n6.log and n6b.log; LU(J) baseline fill 10.97 reproduced.
+
 ## 2026-09-12 ~23:00 — Hermes took over (sandbox agent cold 15 h), fixed the cyclic veto
 - n6b result: tiered matching works (FULL 64,766 → 64,718, core |C|=19,418) but a
   1,225-node cyclic cluster (delPTX, pcst, plab_o, pprim, xlab, xlab_o, xprim)

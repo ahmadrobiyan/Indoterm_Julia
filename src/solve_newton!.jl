@@ -173,7 +173,8 @@ subsequent solve warm-starts from it.
 
 function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                        maxit::Int=25, tol::Float64=1e-8, verbose::Bool=true,
-                       diagnose_columns::Bool=false, dry_run::Bool=false)
+                       diagnose_columns::Bool=false, dry_run::Bool=false,
+                       linsolve::Symbol=:lu)
     log(msg) = verbose && println(msg)
 
     # ── index the free variables ────────────────────────────────────────────
@@ -214,9 +215,15 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
     end
 
     # ── the Newton unknowns are whatever is still free ──────────────────────
+    # fam_nowfree parallels nowfree: the vars-dict family key per free column.
+    # (JuMP.name(vr) would give "xtradmar[1,...]" — the indexed name, which the
+    # Schur plan cannot match against family keys. A wrong namespace here fails
+    # SILENTLY: empty S, plan nothing, every iteration degrades to CGNR.)
     nowfree = VariableRef[]
-    for (_, v) in vars, vr in (v isa AbstractArray ? v : (v,))
-        JuMP.is_fixed(vr) || push!(nowfree, vr)
+    fam_nowfree = String[]
+    for (nm, v) in vars, vr in (v isa AbstractArray ? v : (v,))
+        if JuMP.is_fixed(vr); continue; end
+        push!(nowfree, vr); push!(fam_nowfree, String(nm))
     end
     N = length(nowfree)
 
@@ -454,6 +461,11 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
         accepted = false; alpha = 0.0; cgnr_rel = Inf
 
         # ── Direct sparse LU, with CGNR/Levenberg-Marquardt as fallback ─
+        # `linsolve=:lu` (default): exact historical behaviour. `linsolve=:schur`
+        # routes the first-try direction through `schur_linsolve.jl` (exact
+        # Jacobian-level condensation + refinement); the `exact` lin_rel check
+        # below validates either path identically, and any Schur failure falls
+        # into the same CGNR fallback.
         # Measured at 25x6 (83,541 square, κ(J_s) ≈ 2.6e10): lu(J_s) costs 1.8s
         # and returns ‖J_s·dy + rhs_s‖/‖rhs_s‖ ≈ 4e-10, whereas CGNR at the 200
         # iterations budgeted below returns max|dy| = 0.025 against a true 1221 —
@@ -464,10 +476,12 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
         # region-scaling measurements: LU fill-in is the wall beyond ~20 regions,
         # which is what the Excerpt 49 condensation is for).
         F_lu = nothing
-        try
-            F_lu = lu(J_s)
-        catch e
-            log("  it $it: lu(J_s) failed — $(sprint(showerror, e)); using CGNR")
+        if linsolve == :lu
+            try
+                F_lu = lu(J_s)
+            catch e
+                log("  it $it: lu(J_s) failed — $(sprint(showerror, e)); using CGNR")
+            end
         end
 
         # Start with current mu. If the step does not improve the residual,
@@ -479,9 +493,22 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
             # (no magnitude cap), since capping an exact direction destroys the
             # very property the line search relies on.
             exact = false
-            if F_lu !== nothing && lmtry == 1
+            if (F_lu !== nothing || linsolve == :schur) && lmtry == 1
                 try
-                    dy_try = F_lu \ (-rhs_s)
+                    if linsolve == :schur
+                        dy_schur = schur_linsolve(J_s, -rhs_s, fam_nowfree; verbose=false)
+                        if dy_schur === nothing
+                            # LOUD: a requested Schur path that never engages is a
+                            # silent CGNR downgrade (bit-identical stalls). Never log().
+                            println("  it $it: Schur path unavailable — falling back to CGNR " *
+                                    "(S match failed; check family namespace)")
+                            flush(stdout)
+                            error("Schur path unavailable for this iteration")
+                        end
+                        dy_try = dy_schur
+                    else
+                        dy_try = F_lu \ (-rhs_s)
+                    end
                     lin_rel = norm(J_s * dy_try .+ rhs_s) / max(norm(rhs_s), eps())
                     cgnr_rel = lin_rel
                     exact = isfinite(lin_rel) && lin_rel < 1e-6 && all(isfinite, dy_try)

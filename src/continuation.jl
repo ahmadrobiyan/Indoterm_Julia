@@ -85,7 +85,8 @@ function continuation_solve!(m::JuMP.Model, vars::Dict{String,Any},
                              h0::Float64=0.25, hmin::Float64=1e-4,
                              hmax::Float64=1.0, tol::Float64=1e-8,
                              maxit::Int=30, grow_iters::Int=4,
-                             report=(), verbose::Bool=true)
+                             report=(), verbose::Bool=true,
+                             linsolve::Symbol=:lu)
     log(msg) = verbose && println(msg)
 
     s = JuMP.fix_value(shock_vr)
@@ -108,7 +109,8 @@ function continuation_solve!(m::JuMP.Model, vars::Dict{String,Any},
 
         snap = _snapshot_starts(m)
         JuMP.fix(shock_vr, s_try; force=true)
-        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=false)
+        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=false,
+                                          linsolve=linsolve)
 
         if r.residual <= tol
             nsteps += 1; s = s_try; res = r.residual

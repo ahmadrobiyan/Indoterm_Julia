@@ -107,16 +107,47 @@ function scol_census(fam::Vector{String}, names::Vector{String})
     return Scols, per
 end
 
-# Adjacency: for each S-column, its stored rows sorted by descending |entry|.
-function build_adj(J::SparseMatrixCSC{Float64,Int}, Scols::Vector{Int})
+# Adjacency: for each S-column, its stored rows sorted by ascending row S-degree
+# (own defining rows have O(1) S-entries; shared aggregation rows have many),
+# ties broken by descending |entry|.
+function build_adj(J::SparseMatrixCSC{Float64,Int}, Scols::Vector{Int}, sdeg::Vector{Int})
     rv = rowvals(J); nzv = nonzeros(J)
     adj = Vector{Vector{Int}}(undef, length(Scols))
     for (i, c) in enumerate(Scols)
         rng = nzrange(J, c)
         rows = rv[rng]; vs = nzv[rng]
-        adj[i] = rows[sortperm(abs.(vs); rev=true)]
+        ord = sortperm(1:length(rows); by=k -> (sdeg[rows[k]], -abs(vs[k])))
+        adj[i] = rows[ord]
     end
     return adj
+end
+
+# Unit propagation: columns with exactly one available candidate row are forced
+# matches in every maximum matching. Pin them, repeat to cascade. Sound for
+# max cardinality; preserves propagation pins through later HK (frozen rows).
+function propagate_match(adj::Vector{Vector{Int}}, nrows::Int)
+    nU = length(adj)
+    pairU = zeros(Int, nU); pairV = zeros(Int, nrows)
+    claimed = falses(nrows)
+    npinned = 0
+    while true
+        progress = false
+        for i in 1:nU
+            pairU[i] != 0 && continue
+            best = 0; cnt = 0
+            for r in adj[i]
+                claimed[r] && continue
+                cnt += 1; best = r
+                cnt > 1 && break
+            end
+            if cnt == 1
+                pairU[i] = best; pairV[best] = i; claimed[best] = true
+                npinned += 1; progress = true
+            end
+        end
+        progress || break
+    end
+    return pairU, pairV, npinned
 end
 
 # Hopcroft-Karp maximum bipartite matching, left = S-columns, right = rows.
@@ -290,7 +321,8 @@ end
 gb(x) = x / 1e9
 
 function run_set(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String},
-                 setname::String, setvars::Vector{String}, Fref, nreg::Int)
+                 setname::String, setvars::Vector{String}, Fref, nreg::Int;
+                 dfloor::Float64=1e-6)
     N = size(J, 2); NC = size(J, 1)
     say("\nSet: $setname")
     Scols_all, census = scol_census(fam, setvars)
@@ -314,12 +346,15 @@ function run_set(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String},
             sdeg[rvJ[k]] += 1
         end
     end
-    adj_full = build_adj(J, Scols_all)
+    adj_full = build_adj(J, Scols_all, sdeg)
     K1 = 6; K2 = 4 * nreg
     adj1 = [filter(r -> sdeg[r] <= K1, rows) for rows in adj_full]
-    pairU = zeros(Int, length(Scols_all)); pairV = zeros(Int, NC)
-    pairU, pairV, m1 = hopcroft_karp(adj1, NC, pairU, pairV)
-    say(@sprintf("   HK tier1 (sdeg<=%d): matched %d / %d (%.2fs)", K1, m1, length(Scols_all), time() - t0))
+    pairU, pairV, npin = propagate_match(adj1, NC)
+    say(@sprintf("   propagate (sdeg<=%d): pinned %d / %d (%.2fs)", K1, npin, length(Scols_all), time() - t0))
+    t0 = time()
+    adj1r = [pairU[i] != 0 ? Int[] : adj1[i] for i in 1:length(Scols_all)]
+    pairU, pairV, m1 = hopcroft_karp(adj1r, NC, pairU, pairV)
+    say(@sprintf("   HK tier1 residue: matched %d / %d (%.2fs)", m1, length(Scols_all), time() - t0))
     m = m1
     if m1 < length(Scols_all)
         t0 = time()
@@ -341,7 +376,7 @@ function run_set(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String},
     # keeping it puts a ~1e-14 pivot on D's diagonal, which then poisons
     # D⁻¹B (×1e14 amplification), K̃, and the verify. True defining rows
     # carry O(1) coefficients. Drop offenders back to the core, per family.
-    DFLOOR = 1e-6
+    DFLOOR = dfloor
     dropped_dom = 0
     dropped_dom_per = Dict{String,Int}()
     for i in 1:length(Scols_all)
@@ -510,8 +545,10 @@ function main(sizes)
         say(@sprintf("   LU(J) baseline: nnz=%d fill=%.2f time=%.2fs  RSS=%.2f GB",
                      nnz(Fref.L) + nnz(Fref.U), (nnz(Fref.L) + nnz(Fref.U)) / nnz(J),
                      time() - t0, gb(Sys.maxrss())))
-        run_set(J, fam, "PRIMARY", PRIMARY_S_VARS, Fref, n)
-        GC.gc()
+        for fl in (1e-9, 1e-6, 1e-3, 1e-2)
+            run_set(J, fam, "PRIMARY-f$fl", PRIMARY_S_VARS, Fref, n; dfloor=fl)
+            GC.gc()
+        end
         run_set(J, fam, "TRADENEST", TRADENEST_S_VARS, Fref, n)
         GC.gc()
         run_set(J, fam, "FULL", FULL_S_VARS, Fref, n)
