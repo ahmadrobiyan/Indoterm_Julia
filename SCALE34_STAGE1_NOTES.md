@@ -166,3 +166,20 @@ Probe: `test/scratch/_probe_condense.jl` (untracked scratch). Logs: `logs/` (git
   stay in core (floor) or await symbolic treatment — recorded, not solved.
 - Accuracy: raw Schur verify ~2e-3 at all sizes (weak-pivot cap). Stage 2a must
   include iterative refinement on the Schur path; the seam design should carry it.
+
+## 2026-09-12 ~23:55 — n20 CONFIRMS: fits converge at ≈57M, Stage 2a firm
+- Baseline fill 69.62 (LU 137.3M — the documented 70× wall, reproduced).
+  PRIMARY fill **9.59** (LU 19.4M, verify 2.0e-3) — 7.1× smaller in absolute terms.
+  FULL 46.57 (168.8M — better than baseline but K̃/K=18.81, still densifying).
+  TRADENEST **149.40** (252.5M — worse than the uneliminated baseline, ALONE past
+  the 250M bar; penalty ratio 1.46× → 1.95× → 2.12× → 2.14×, saturating).
+- Four-point log-log on PRIMARY LU (1.65M/3.97M/9.24M/19.4M): overall exponent
+  ≈2.05, top-segment (14→20) ≈2.08 — the steepening did NOT continue.
+  Projections to 34: **≈57M both fits (converged, was 55–86M)**. Margin to the
+  250M rule is 4×. RSS peaked 13.8 GB (FULL K̃ LU); PRIMARY path stayed ≤9.9 GB.
+- n=20 behaved as projected with no blowup — confirmation run PASSED.
+  **Stage 1 COMPLETE. Recommendation: Stage 2a** (S=PRIMARY-as-measurable,
+  `linsolve` seam at `solve_newton!.jl:468` + bordered sites, refinement
+  included). Seam + bordered-LU edits remain explicitly UNAUTHORISED —
+  user must lift the `src/` restriction first. Nothing pushed (3+ commits
+  ahead of origin/master).
