@@ -133,3 +133,36 @@ Probe: `test/scratch/_probe_condense.jl` (untracked scratch). Logs: `logs/` (git
   handled (floor keeps them in core, so FULL-as-measurable excludes them;
   their coupling stays). Open: does partial elimination ever win, or must the
   coupling leave entirely? n=10 next for the scaling slope.
+
+## 2026-09-12 ~23:25 — n10: coupling must leave TOGETHER (non-monotone in |S|)
+- Baseline fill 24.74 (LU 15.6M). Results:
+  PRIMARY fill **5.69** (verify 2.6e-3, K̃/K=1.84) — 4.3× better than baseline.
+  FULL fill 21.29 (verify 1.8e-3, K̃/K=8.66 — densifying fast, bad scaling signal).
+  TRADENEST fill **48.33** (verify 1.8e-6, K̃/K=1.07) — 2× WORSE than baseline.
+- Ordering: PRIMARY < FULL < baseline < TRADENEST. More elimination is NOT
+  monotonically better — the RIGHT set matters. TRADENEST penalty grows with n
+  (1.46× at n=6 → 1.95× at n=10): stranding the coupling in the core while
+  deleting its separator block is increasingly harmful. PRIMARY takes all four
+  nr² trade families out together and separability is restored.
+- Fill growth n=6→10: baseline 2.26× (10.97→24.74), PRIMARY only 1.36×
+  (4.18→5.69). If that slope holds at n=14, the 34-projection decides Stage 2a.
+- Accuracy note for Stage 2: weak pivots cap the raw Schur verify at ~1e-3.
+  The answer is iterative refinement on the Schur path (full-J residual,
+  matvecs only — cheap), not a higher floor. Refinement is Stage 2's problem;
+  Stage 1 only needs the fill slope. n=14 next.
+
+## 2026-09-12 ~23:35 — n14: STAGE-1 VERDICT — PRIMARY passes the decision rule
+- Baseline fill 45.46 (LU 48.6M). PRIMARY fill **8.02** (LU 9.24M, verify
+  2.1e-3) — 5.7× better, absolute LU 5.3× smaller. FULL 37.44 (verify 1.5e-3,
+  K̃/K=12.59 — still densifying). TRADENEST **96.42** (2.12× baseline penalty;
+  refutation complete across all three scales: 1.46× → 1.95× → 2.12×).
+- Log-log fit on PRIMARY absolute LU nnz (1.65M / 3.97M / 9.24M at 6/10/14):
+  overall exponent ≈2.03, top-segment ≈2.51 (steepening — noted, not hidden).
+  Projection to 34: **≈55M (overall fit) to ≈86M (top-segment fit)** —
+  both under the 250M rule (≈4 GB). **Stage 2a recommended**, with the
+  spec'd n=20 confirmation run (exponent is steepening, so confirm, not assumed).
+- S for Stage 2a = PRIMARY-as-measurable (four nr² trade families, weak-pivot
+  members dropped to core by the 1e-6 floor). Weak-pivot composite/tax families
+  stay in core (floor) or await symbolic treatment — recorded, not solved.
+- Accuracy: raw Schur verify ~2e-3 at all sizes (weak-pivot cap). Stage 2a must
+  include iterative refinement on the Schur path; the seam design should carry it.
