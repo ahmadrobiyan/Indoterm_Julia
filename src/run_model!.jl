@@ -319,7 +319,8 @@ function run_model!(agg, params::Dict{String,Any};
                     log("  ↪ falling back to pseudo-arclength on $lbl " *
                         "(current $(round(b + s*(tg-b); sigdigits=8)) → target $(round(tg; sigdigits=8)))")
                     ra = arclength_solve!(m, vars, vr, Float64(tg);
-                                          tol=tol, maxit=maxit, verbose=verbose)
+                                          tol=tol, maxit=maxit, verbose=verbose,
+                                          linsolve=linsolve)
                     # Re-express λ on the branch as the scenario fraction t.
                     t_arc = tg == b ? 1.0 : (ra.lam_reached - b) / (tg - b)
                     apath = [( (tg == b ? 1.0 : (l - b) / (tg - b)), it, rr)

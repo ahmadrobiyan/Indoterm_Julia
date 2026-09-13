@@ -189,7 +189,7 @@ is the variable-family name of free column i. Returns `nothing` when no
 usable S remains — never throws.
 """
 function build_schur_plan(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
-                          verbose::Bool=false)
+                          verbose::Bool=false, dfloor::Float64=SCHUR_DFLOOR)
     log(msg) = verbose && println(msg)
     N = size(J, 2); NC = size(J, 1)
     want = Set(SCHUR_S_VARS)
@@ -220,7 +220,7 @@ function build_schur_plan(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
     dropped = 0
     for i in 1:length(Scols_all)
         r = pairU[i]
-        if r != 0 && abs(J[r, Scols_all[i]]) < SCHUR_DFLOOR
+        if r != 0 && abs(J[r, Scols_all[i]]) < dfloor
             pairU[i] = 0; pairV[r] = 0; dropped += 1
         end
     end
@@ -271,36 +271,12 @@ One condensed solve with iterative refinement. `nothing` on any failure —
 caller falls back to its existing path.
 """
 function schur_linsolve(J::SparseMatrixCSC{Float64,Int}, rhs::Vector{Float64},
-                        fam::Vector{String}; verbose::Bool=false)
+                        fam::Vector{String}; verbose::Bool=false,
+                        dfloor::Float64=SCHUR_DFLOOR)
     log(msg) = verbose && println(msg)
-    local plan
-    try
-        plan = build_schur_plan(J, fam; verbose=verbose)
-    catch e
-        log("  schur: plan build failed — " * sprint(showerror, e))
-        return nothing
-    end
-    plan === nothing && return nothing
-    S, R, P, invP, C, restR = plan.S, plan.R, plan.P, plan.invP, plan.C, plan.restR
-    local Y, Fk
-    try
-        B = J[R, C]; A = J[restR, S]
-        Dp = J[R[P], S[P]]
-        Yp = _schur_tri_sparse(Dp, B[P, :])
-        ymax = maximum(abs, nonzeros(Yp); init=0.0)
-        if ymax > 0
-            I2, J2, V2 = findnz(Yp)
-            keep2 = abs.(V2) .> 1e-14 * ymax
-            Yp = sparse(I2[keep2], J2[keep2], V2[keep2], size(Yp, 1), size(Yp, 2))
-        end
-        Y = Yp[invP, :]
-        Kt = J[restR, C] - A * Y
-        dropzeros!(Kt)
-        Fk = lu(Kt)
-    catch e
-        log("  schur: factorize failed — " * sprint(showerror, e))
-        return nothing
-    end
+    fz = schur_factorize(J, fam; verbose=verbose, dfloor=dfloor)
+    fz === nothing && return nothing
+    plan, Y, Fk = fz
     local x
     try
         x = _schur_correct(J, plan, Y, Fk, rhs)
@@ -320,4 +296,116 @@ function schur_linsolve(J::SparseMatrixCSC{Float64,Int}, rhs::Vector{Float64},
         return nothing
     end
     return x
+end
+
+"""
+    schur_factorize(J, fam; verbose, dfloor) -> (plan, Y, Fk) or nothing
+
+Plan + triangular factor + core LU, shared by `schur_linsolve` and the
+bordered solver below (one factorization serves both bordered RHS).
+"""
+function schur_factorize(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
+                         verbose::Bool=false, dfloor::Float64=SCHUR_DFLOOR)
+    log(msg) = verbose && println(msg)
+    local plan
+    try
+        plan = build_schur_plan(J, fam; verbose=verbose, dfloor=dfloor)
+    catch e
+        log("  schur: plan build failed — " * sprint(showerror, e))
+        return nothing
+    end
+    plan === nothing && return nothing
+    S, R, P, invP, C, restR = plan.S, plan.R, plan.P, plan.invP, plan.C, plan.restR
+    try
+        B = J[R, C]; A = J[restR, S]
+        Dp = J[R[P], S[P]]
+        Yp = _schur_tri_sparse(Dp, B[P, :])
+        ymax = maximum(abs, nonzeros(Yp); init=0.0)
+        if ymax > 0
+            I2, J2, V2 = findnz(Yp)
+            keep2 = abs.(V2) .> 1e-14 * ymax
+            Yp = sparse(I2[keep2], J2[keep2], V2[keep2], size(Yp, 1), size(Yp, 2))
+        end
+        Y = Yp[invP, :]
+        Kt = J[restR, C] - A * Y
+        dropzeros!(Kt)
+        Fk = lu(Kt)
+        return plan, Y, Fk
+    catch e
+        log("  schur: factorize failed — " * sprint(showerror, e))
+        return nothing
+    end
+end
+
+"""
+    schur_bordered(A, b, N, fam; verbose, dfloor, tol=1e-9) -> Vector(N+1) or nothing
+
+Solve the bordered system `A*z = b` where `A = [J Bcol; Crow d]` is
+(NC+1)×(N+1) with NC == N: two condensed solves sharing one factorization,
+plus the scalar border correction. Self-verifying against A to `tol`
+(relative); `nothing` on any failure — caller falls back to `lu(A)`.
+"""
+function schur_bordered(A::SparseMatrixCSC{Float64,Int}, b::Vector{Float64}, N::Int,
+                        fam::Vector{String}; verbose::Bool=false,
+                        dfloor::Float64=SCHUR_DFLOOR, tol::Float64=1e-6)
+    log(msg) = verbose && println(msg)
+    NC = size(A, 1) - 1
+    (size(A, 2) == N + 1 && NC == N) || return nothing
+    J = A[1:NC, 1:N]
+    bcol = Vector(A[1:NC, N+1])
+    # Use a SparseVector for findnz compatibility
+    row_vec = SparseVector(A[NC+1, :])
+    # findnz returns (row_indices, col_ptr, values) for matrices, 
+    # but for SparseVector it returns (indices, values).
+    res = findnz(row_vec)
+    if length(res) == 2
+        Crow, Cval = res
+    else
+        Crow, _, Cval = res
+    end
+    d = 0.0
+    c = zeros(Float64, N)
+    for (i, v) in zip(Crow, Cval)
+        if i == N + 1
+            d = v
+        else
+            c[i] = v
+        end
+    end
+    f = b[1:NC]; g = b[NC+1]
+    fz = schur_factorize(J, fam; verbose=verbose, dfloor=dfloor)
+    fz === nothing && return nothing
+    plan, Y, Fk = fz
+    local z
+    try
+        v1 = _schur_correct(J, plan, Y, Fk, Vector{Float64}(f))
+        v2 = _schur_correct(J, plan, Y, Fk, bcol)
+        for (vv, rr) in ((v1, Vector{Float64}(f)), (v2, bcol))
+            for _ in 1:SCHUR_NREFINE
+                r = rr - J * vv
+                rel = norm(r, Inf) / max(norm(rr, Inf), eps())
+                rel < 1e-12 && break
+                dx = _schur_correct(J, plan, Y, Fk, r)
+                all(isfinite, dx) || break
+                vn = vv + dx
+                norm(rr - J * vn, Inf) < norm(r, Inf) || break
+                vv .= vn
+            end
+        end
+        denom = d - dot(c, v2)
+        abs(denom) <= 1e-14 * max(abs(d), 1.0) && return nothing
+        y = (g - dot(c, v1)) / denom
+        x = v1 - y * v2
+        z = Vector{Float64}(undef, N + 1)
+        z[1:N] .= x; z[N+1] = y
+        rel = norm(A * z - b, Inf) / max(norm(b, Inf), eps())
+        if !(rel <= tol && all(isfinite, z))
+            log("  schur_bordered: self-verify failed rel=" * string(rel))
+            return nothing
+        end
+    catch e
+        log("  schur_bordered failed — " * sprint(showerror, e))
+        return nothing
+    end
+    return z
 end

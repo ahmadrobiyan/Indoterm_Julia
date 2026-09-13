@@ -181,7 +181,8 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
                           ds0::Float64=0.005, dsmin::Float64=1e-7, dsmax::Float64=0.02,
                           tol::Float64=1e-8, maxit::Int=20, maxsteps::Int=200,
                           grow_iters::Int=4, report=(), verbose::Bool=true,
-                          trust::Float64=0.25, jumpmax::Float64=8.0)
+                          trust::Float64=0.25, jumpmax::Float64=8.0,
+                          linsolve::Symbol=:lu)
     # flush(stdout) is NOT optional here. Julia block-buffers stdout when it is
     # redirected to a file, so without it a run of this length is completely
     # opaque: an empty log looks identical to a hung job, and the only way to find
@@ -198,8 +199,10 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
     pos = Dict(JuMP.index(v).value => k for (k, v) in enumerate(allv))
 
     nowfree = VariableRef[]
-    for (_, v) in vars, vr in (v isa AbstractArray ? v : (v,))
-        JuMP.is_fixed(vr) || push!(nowfree, vr)
+    fam_free = String[]
+    for (nm, v) in vars, vr in (v isa AbstractArray ? v : (v,))
+        if JuMP.is_fixed(vr); continue; end
+        push!(nowfree, vr); push!(fam_free, String(nm))
     end
     N = length(nowfree)
     freecols = [pos[JuMP.index(v).value] for v in nowfree]
@@ -355,7 +358,14 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
     # raw solution IS `v = dz/dλ`, which is what the metric needs.
     e = zeros(NC + 1); e[NC+1] = 1.0
     push_state!(z)
-    tlu0 = @elapsed v = lu(augmented([N + 1], [1.0])) \ e
+    tlu0 = @elapsed v = let A0 = augmented([N + 1], [1.0])
+        if linsolve == :schur
+            zb0 = schur_bordered(A0, Vector{Float64}(e), N, fam_free; verbose=false)
+            zb0 === nothing ? (lu(A0) \ e) : zb0
+        else
+            lu(A0) \ e
+        end
+    end
     all(isfinite, v) ||
         error("bootstrap sensitivity dz/dλ is not finite — the start point is already singular")
 
@@ -545,22 +555,31 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
                 ok = true; break
             end
             tlu = @elapsed begin
+                b = Vector{Float64}(undef, NC + 1)
+                @inbounds for i in 1:NC; b[i] = -gbuf[i] / rowscale[i]; end
+                b[NC+1] = -nfun(zc)
                 A = augmented(ridx, rval)
-                F = try
-                    lu(A)
-                catch err
-                    say("     corrector it=$it: factorisation failed ($(typeof(err))) — rejecting step")
-                    nothing
+                F = nothing
+                dz_direct = nothing
+                if linsolve == :schur
+                    dz_direct = schur_bordered(A, b, N, fam_free; verbose=false)
+                    dz_direct === nothing &&
+                        say("     corrector it=$it: bordered miss — LU fallback")
+                end
+                if dz_direct === nothing
+                    F = try
+                        lu(A)
+                    catch err
+                        say("     corrector it=$it: factorisation failed ($(typeof(err))) — rejecting step")
+                        nothing
+                    end
                 end
             end
-            F === nothing && break
+            (F === nothing && dz_direct === nothing) && break
             Flast = F
-            b = Vector{Float64}(undef, NC + 1)
-            @inbounds for i in 1:NC; b[i] = -gbuf[i] / rowscale[i]; end
-            b[NC+1] = -nfun(zc)
-            dz = F \ b
+            dz = dz_direct !== nothing ? dz_direct : F \ b
             verbose && say("     it=$it  ‖F‖∞=$(round(rr; sigdigits=4))  " *
-                           "n=$(round(nres; sigdigits=3))  LU $(round(tlu; digits=1))s")
+                           "n=$(round(nres; sigdigits=3))  $(linsolve == :schur ? "SCH" : "LU") $(round(tlu; digits=1))s")
             all(isfinite, dz) || break
 
             # Fraction-to-boundary, so a positivity-bounded variable is never
@@ -697,9 +716,21 @@ function arclength_solve!(m::JuMP.Model, vars::Dict{String,Any},
             # tangent normalised to τ[kloc] = 1; the metric normalisation follows.
             tnew = try
                 if Flast === nothing
-                    ttan = @elapsed Ft = lu(augmented(ridx, rval))
-                    verbose && say("     tangent LU $(round(ttan; digits=1))s (fresh)")
-                    Ft \ e
+                    A3 = augmented(ridx, rval)
+                    if linsolve == :schur
+                        zt = schur_bordered(A3, Vector{Float64}(e), N, fam_free; verbose=false)
+                        if zt === nothing
+                            ttan = @elapsed Ft = lu(A3)
+                            verbose && say("     tangent LU $(round(ttan; digits=1))s (fresh, bordered miss)")
+                            Ft \ e
+                        else
+                            zt
+                        end
+                    else
+                        ttan = @elapsed Ft = lu(A3)
+                        verbose && say("     tangent LU $(round(ttan; digits=1))s (fresh)")
+                        Ft \ e
+                    end
                 else
                     Flast \ e
                 end
