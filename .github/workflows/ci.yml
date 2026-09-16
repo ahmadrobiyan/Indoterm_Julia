@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    - cron: "0 17 * * *"   # 00:00 WIB — nightly integration + full V&V
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Gate tier to run"
+        required: true
+        default: full
+        type: choice
+        options: [fast, integration, full, nongating]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JULIA_NUM_THREADS: auto
+
+jobs:
+  # ── Cheap, runs on every push: provenance + environment reproducibility ──
+  provenance:
+    name: Data provenance + lockfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify input data checksums
+        run: bash scripts/verify_data.sh
+
+      # The lockfile is the reproducibility artifact. A missing Manifest.toml means
+      # published results cannot be reconstructed, and it has bitten this project
+      # before (ras_balance! 1s -> 124s after a Pkg.update; see AGENTS.md).
+      - name: Require committed Manifest.toml
+        run: |
+          if [ ! -f Manifest.toml ]; then
+            echo "::error file=Manifest.toml::Manifest.toml is not committed."
+            echo "Generate and commit it:  julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.status()'"
+            exit 1
+          fi
+          echo "Manifest.toml present."
+
+  fast:
+    name: "Gates: fast"
+    runs-on: ubuntu-latest
+    needs: provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - run: bash scripts/verify_data.sh
+      - name: Instantiate (honours committed Manifest.toml)
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.status()'
+      - run: bash scripts/run_gates.sh fast
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-logs-fast
+          path: logs/gates/
+
+  # ── Expensive: nightly, or on demand. Each solve is minutes; the full tier is hours. ──
+  heavy:
+    name: "Gates: ${{ matrix.tier }}"
+    runs-on: ubuntu-latest
+    needs: provenance
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: ${{ github.event_name == 'schedule' && fromJSON('["integration","full","nongating"]') || fromJSON('["integration"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - run: bash scripts/verify_data.sh
+      - run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.status()'
+      - run: bash scripts/run_gates.sh ${{ matrix.tier }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-logs-${{ matrix.tier }}
+          path: logs/gates/

@@ -510,5 +510,5 @@ variables). This is now the primary line of work; everything below in this secti
       2026-07-22): `SLAB, P028, SMAR, PO01, SCET, P018` are all read into local bindings in
       `prepare_parameters.jl` and then never added to its output dict, so `build_model!.jl` falls
       back to hardcoded placeholder elasticities for all of them. Fix all six in one pass.
-- [ ] Once `HeaderArrayFile.jl` is confirmed unused elsewhere, drop it from `Project.toml` (currently
+- [x] ~~Once `HeaderArrayFile.jl` is confirmed unused elsewhere, drop it from `Project.toml`~~ — **done**: confirmed no `using`/`import`/qualified call in `src/`, `test/` or `analysis/` (only a docstring in `read_data.jl` explaining why it is NOT used); removed from `[deps]` and `[compat]`. (was: currently
       kept only because Step 1 originally depended on it before the harpy-CSV fallback).

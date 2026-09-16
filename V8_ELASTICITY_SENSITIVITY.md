@@ -1,9 +1,10 @@
 # V8 — Elasticity sensitivity analysis: technical design
 
-**Status: 🔴 not started.** This is a design document only — no code has been written. VV_PLAN.md
-§V8 (lines 563-580) states the question and the one-line method; this file works out how to
-actually implement it against this codebase, which parameters are the targets, where they live,
-what a sweep costs, and what the deliverable looks like.
+**Status: 🟡 script written 2026-08-02, NOT yet executed.** `test/sensitivity.jl` implements
+Phase A below (13 solves, ~55-85 min) and is a ready handoff — run it with
+`julia --project=IndotermJulia IndotermJulia/test/sensitivity.jl`. This file remains the design
+record: which parameters are the targets, where they live, what a sweep costs, and what the
+deliverable looks like.
 
 ## The question, restated precisely
 

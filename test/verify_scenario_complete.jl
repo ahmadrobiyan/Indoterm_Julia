@@ -111,4 +111,95 @@ println("✅ TERM_CMF_REFERENCE matches origin/TERM.CMF: $(length(src)) shock(s)
     stopping its results being read as the authors' reference simulation."""
 
 println("✅ TERM_CMF_NO_DELUNITY is still the labelled INCOMPLETE fixture (1 shock).")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COALPRICE_REFERENCE vs origin/coalprice.CMF
+#
+# Added 2026-09-10. The V8 elasticity sweep could not track `P028 ×0.5` past
+# `t = 0.6426` against this scenario, and the first hypothesis to rule out is the
+# one that was true last time: a scenario one line short of its source is a
+# DIFFERENT experiment, and its obstructions are that experiment's, not the
+# model's. Shocks alone are not enough here — `coalprice.CMF` carries four `swap`
+# statements, and a missing swap leaves a variable pinned that the source lets
+# adjust, which is exactly the kind of thing that turns a passable path into a
+# fold. So this leg checks BOTH.
+# ═══════════════════════════════════════════════════════════════════════════
+
+const COAL_CMF = joinpath(@__DIR__, "..", "origin", "coalprice.CMF")
+
+# `swap a = b;` — same comment-stripping and case-insensitivity as the shock
+# parser above, for the same reasons.
+function source_swaps(path)
+    found = Tuple{Int,String,String}[]
+    for (n, raw) in enumerate(eachline(path))
+        line = split(raw, '!')[1]
+        m = match(r"^\s*swap\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)"i, line)
+        m === nothing || push!(found, (n, String(m.captures[1]), String(m.captures[2])))
+    end
+    found
+end
+
+isfile(COAL_CMF) || error("cannot find $COAL_CMF — this test reads the shipped source, not a copy")
+
+csrc_sh = source_shocks(COAL_CMF)
+csrc_sw = source_swaps(COAL_CMF)
+
+println("\n`Shock` statements found in origin/coalprice.CMF:")
+foreach(t -> println("  :$(t[1])  $(t[2])"), csrc_sh)
+println("`swap` statements found in origin/coalprice.CMF:")
+foreach(t -> println("  :$(t[1])  $(t[2]) = $(t[3])"), csrc_sw)
+
+cdeclared = String[]
+for (spec, _) in COALPRICE_REFERENCE.shocks
+    push!(cdeclared, spec isa Tuple ? String(spec[1]) : String(spec))
+end
+for (spec, _) in COALPRICE_REFERENCE.pct_shocks
+    push!(cdeclared, spec isa Tuple ? String(spec[1]) : String(spec))
+end
+
+csrcset  = Set(lowercase(t[2]) for t in csrc_sh)
+cdeclset = Set(lowercase(v) for v in cdeclared)
+cmiss_here  = sort(collect(setdiff(csrcset, cdeclset)))
+cmiss_there = sort(collect(setdiff(cdeclset, csrcset)))
+
+isempty(cmiss_here) || error("""
+    COALPRICE_REFERENCE is MISSING shock(s) that origin/coalprice.CMF applies: $cmiss_here
+
+    Every V8 elasticity-sensitivity number is computed against this scenario. A
+    missing shock makes all of them describe a different experiment — including
+    the `P028 ×0.5` obstruction at t = 0.6426.""")
+isempty(cmiss_there) || error("""
+    COALPRICE_REFERENCE shocks variable(s) origin/coalprice.CMF does not: $cmiss_there
+
+    The reference scenario must be a transcription, not an extension.""")
+@assert length(csrc_sh) == length(cdeclared) """
+    count mismatch: origin/coalprice.CMF has $(length(csrc_sh)) Shock statement(s), \
+    COALPRICE_REFERENCE declares $(length(cdeclared)). The variable NAMES agree, so \
+    one of them shocks the same variable twice — check for a duplicate."""
+
+# Swaps are compared as ORDERED PAIRS, not as a set of names. `swap a = b` and
+# `swap b = a` name the same two variables, but `apply_swaps!` takes
+# (endogenous, exogenous) in that order, so a transposed pair is a real defect
+# that a name-set comparison would wave through.
+csrc_pairs  = Set((lowercase(t[2]), lowercase(t[3])) for t in csrc_sw)
+cdecl_pairs = Set((lowercase(a), lowercase(b)) for (a, b) in COALPRICE_SWAPS)
+swmiss_here  = sort(collect(setdiff(csrc_pairs, cdecl_pairs)))
+swmiss_there = sort(collect(setdiff(cdecl_pairs, csrc_pairs)))
+
+isempty(swmiss_here) || error("""
+    COALPRICE_SWAPS is MISSING swap(s) that origin/coalprice.CMF applies: $swmiss_here
+
+    A missing swap leaves a variable pinned that the source lets adjust. The shock
+    then has fewer margins to absorb it, and the continuation path can fold where
+    the source's own closure passes cleanly — an artifact indistinguishable, from
+    the outside, from a model property.""")
+isempty(swmiss_there) || error("""
+    COALPRICE_SWAPS applies swap(s) origin/coalprice.CMF does not: $swmiss_there""")
+
+println("\n✅ COALPRICE_REFERENCE matches origin/coalprice.CMF: " *
+        "$(length(csrc_sh)) shock(s) and $(length(csrc_sw)) swap(s), " *
+        "same variables and same swap orientation, parsed from the source file.")
+println("   ↳ So the V8 `P028 ×0.5` obstruction at t = 0.6426 is NOT the " *
+        "\"one line short\" failure of λ* = 0.9908083. That explanation is ruled out.")
+
 println("\nDone.")

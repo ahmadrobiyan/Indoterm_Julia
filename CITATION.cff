@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "INDOTERM-Julia: a Julia translation of the INDOTERM multi-region CGE model of Indonesia"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Robiyan
+    given-names: Ahmad
+    # orcid: "https://orcid.org/0000-0000-0000-0000"   # TODO: add ORCID
+repository-code: "https://github.com/ahmadrobiyan/Indoterm_Julia"
+abstract: >-
+  A Julia translation of INDOTERM, a TERM-family, ORANI-G-derived multi-region
+  computable general equilibrium model of Indonesia, ported from its original
+  GEMPACK/TABLO source and solved in levels with a sparse Newton method. Base
+  data are the 2016 Indonesia input-output table with regional supplementary
+  data (185 commodities x 34 provinces), solved at 25 sectors x 6 island groups.
+keywords:
+  - computable general equilibrium
+  - CGE
+  - Indonesia
+  - TERM
+  - ORANI-G
+  - regional economics
+  - Julia
+license: MIT
+references:
+  - type: software
+    title: "TERM: The Enormous Regional Model"
+    authors:
+      - family-names: Horridge
+        given-names: Mark
+    notes: >-
+      Original GEMPACK/TABLO model that INDOTERM derives from; source
+      redistributed under origin/ (see NOTICE for its separate terms).

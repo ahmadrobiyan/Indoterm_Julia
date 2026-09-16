@@ -20,9 +20,14 @@ The distinction this file is organised around is the standard one:
 - **Validation** — did we build the *right* model? Do its magnitudes deserve to be
   believed by someone making a decision?
 
-Current honest position: **verification is good and nearly complete; validation has barely
-started.** The gates below would catch a broken translation. They would not catch a subtly
-wrong one, and they say nothing about credibility of magnitudes.
+Current honest position (2026-09-11): **verification is complete as far as it goes —
+every checkable gate has a verdict. Validation is substantially underway, not
+barely started:** V9 validates against the original authors' published results,
+V8 puts elasticity intervals on every headline number, V5 closes the income-side
+identity to 0.7%, and V4's six rounds quantify exactly which regional claims are
+robust and which are not. What validation still lacks is a second external
+reference point (V9 route 2 is permanently out of reach) and any post-2016 data
+vintage — magnitudes remain conditional on the 2016 database, stated as such.
 
 ---
 
@@ -31,7 +36,7 @@ wrong one, and they say nothing about credibility of magnitudes.
 | Standard CGE check | State | Where |
 |---|---|---|
 | Benchmark replication (zero shock → zero change) | ✅ ‖F‖∞ ≈ 1.4e-9 | `test/solve_benchmark_6reg.jl` |
-| Equation/unknown count; square system | ✅ 83,515² at 25×6 | `test/diag_eqcount_6reg.jl` |
+| Equation/unknown count; square system | ✅ 83,515² at 25×6 | `test/scratch/diag_eqcount_6reg.jl` |
 | Database balance identities | ✅ done; regional GDP identity fails ≤36.1% — **a defect in the shipped data**, not the translation | `PLAN.md` §N |
 | Price homogeneity, degree 0 | ✅ 2026-07-31 — worst cell 3.7e-4 → **2.4e-15** after removing a pinned price | `test/verify_homogeneity_tol.jl` |
 | Scenario provenance vs source `.CMF` | ✅ parsed mechanically, not asserted | `test/verify_scenario_complete.jl` |
@@ -71,9 +76,9 @@ that re-check the same configuration more precisely.
 | V3 Path independence | 🟢 PASSED, 2026-08-02 | `test/verify_path_independence.jl` — Legs A (1 step) & B (20 steps), the two routes actually used to produce every published result, agree to 2.1229852587012488e-7 (< RTOL 1e-6). Leg C (forced arclength) extended 200→800 steps, progressed λ=0.1546→0.2737 of 0.4055, still `turned=false` — a genuine slow crawl, not a fold; re-scoped non-gating (exercises a coordinate/method no published result uses) — see V3 section below |
 | V4 Aggregation consistency, re-scoped 12→6 | 🟤 CLOSED — accepted as disclosed limitation, 2026-08-02 | `test/verify_aggregation_consistency.jl` — Stages 1/2/Leg1 all ✅ (data composes exactly to 1e-10, benchmark reproduces to 1e-6). Leg 2 (shocked, +12%) ❌ even after narrowing the sign gate to region-level aggregates (option (b)): 29 of 534 region-level totals disagree in sign, concentrated in BaliNusa (region 5) `xinvi`/`xinv`/`xinv_s` and regional `xsuppmar` margins. Five diagnostic rounds ruled out aggregation-composition bugs, benchmark-base thinness, weight imbalance, and response-dispersion magnitude as the driver; root cause is that these specific region-level responses sit near a zero-crossing, making their sign inherently resolution-sensitive — a property of the shocked equilibrium, not a fixable defect. National GDP unaffected throughout (0.04-0.05% rel diff, every run). User accepted this as a disclosed limitation, 2026-08-02 — see V4 section below for the citation caveat. |
 | V5 Income-side GDP decomposition | 🟢 PASSED, 2026-08-02 | `test/verify_multiplier.jl`, rewritten — the old one-factor predictor (labour share × 3%) omitted the capital and employment channels `TERM_CMF_REFERENCE` deliberately switches on, so its 260% "error" was measuring a wrong predictor, not a model defect. Replaced with the income-side identity `Δln(RealGDP) ≈ s_L·(Δln L + a) + s_K·Δln K + s_LND·Δln LND`, reading `Δln L`/`Δln K` off the solved model (`NatMacro("AggEmploy")`/`NatMacro("AggCapStock")`) instead of assuming them fixed. Result: predicted +5.5144% vs measured +5.5567%, residual 0.7% (vs the retired test's 260%). See V5 section body for the `xlnd`-double-weighting bug caught and fixed en route (first attempt produced a nonsense 3.86e6% "land change" from treating a flow variable as a benchmark=1 index). |
-| V6 Closure ordering | 🔴 TIME-BOXED, unresolved, 2026-07-31 | `test/verify_closure_ordering.jl`: long-run leg solves cleanly every time (both `TERM_CMF_SWAPS` and the matched `TERM_LR_SWAPS_MATCHED`), ~3–7 min. Short-run leg (`TERM_SR_SWAPS`)'s Stage B folds at λ*≈0.9998 across THREE attempts — full shock, 30×-smaller shock, and a labour-matched long-run comparator — ruling out both "shock too large" and "mismatched closure pair" as the sole cause. Root cause still open. Stopped spending solver time on it (task `bt3nxq264` killed mid-run showing the same pathology as the prior two). Report as "ordering not established for this scenario," not as a pass or a translation defect — see V6 section body, "What this means for publication." |
+| V6 Closure ordering | 🔴 PARKED — fold confirmed genuine 2026-09-11 (200 clean steps, same 6-digit λ*), ordering not established for this scenario; see V6 section | `test/verify_closure_ordering.jl`: long-run leg solves cleanly every time (both `TERM_CMF_SWAPS` and the matched `TERM_LR_SWAPS_MATCHED`), ~3–7 min. Short-run leg (`TERM_SR_SWAPS`)'s Stage B folds at λ*≈0.9998 across THREE attempts — full shock, 30×-smaller shock, and a labour-matched long-run comparator — ruling out both "shock too large" and "mismatched closure pair" as the sole cause. 2026-09-11 re-challenge through patched arclength steering reproduced the same 6-digit λ* over 200 clean converged steps — the fold is genuine, not a steering artifact (the old λ≈1.0277 excursion is retired as artifact). No further solver time: the short-run closure genuinely cannot sustain this shock. Report as "ordering not established for this scenario," not as a pass or a translation defect — see V6 section body, "What this means for publication." |
 | V7 Regression suite | 🟢 written and passing, 2026-07-31 | `test/runtests.jl`: V9 31/31, V2 67667/67667, both green from a clean run. Wraps V9+V2 only (the two ungated passes); V1/V3/V4/V5/V6/V8 excluded, see V7 section. |
-| V8 Elasticity sensitivity | not started | `test/sensitivity.jl` (does not exist yet) |
+| V8 Elasticity sensitivity | 🟤 CLOSED 2026-09-11, done-with-limits — 12 of 13 points | `test/sensitivity.jl` — 6 elasticity groups x {x0.5, x1.5} + centre against `COALPRICE_REFERENCE`. Centre 113s, residual 4.19e-09; perturbed points 64-105s. **All 10 headline metrics sign-stable**, table in `analysis/output/v8_sensitivity.csv`, per-point matrix in `v8_sensitivity_points.csv`. Two caveats carry into any citation of the range. (a) `P028 x0.5` folded at t = 0.6426 (205 steps, 14 rejections, 2276s) and is absent, so min/max is a **lower bound** — the omitted point is the one the model found hardest, not a random draw. (b) `SCET` is **inert in this aggregation**: the 6-region make matrix is fully diagonal (0 of 150 industry x region CET nests are multi-product), so alpha = 1 regardless of sigma and only a units scalar moves — two of the 13 solves widen nothing. Effective coverage is 5 of 6 groups. Running the sweep also found and fixed a defect that made it meaningless: it perturbed elasticities AFTER calibration, so CES share parameters stayed fitted to the old sigma (`P015 x0.5` failed benchmark replication at 20.1). Perturbation now precedes `prepare_parameters!`. Verified coupling: P015 -> ALPHA/GAMMA_ARMINT, P028 -> ALPHA/GAMMA_FAC, SLAB -> ALPHA/GAMMA_LAB, SCET -> GAMMA_MAKE only, SMAR and P018 equation-only. Gate correctly reports **no ✅** while a point is incomplete. |
 | ~~V9 route 2 (independent GEMPACK re-run)~~ | 🔴 DROPPED, 2026-08-01 — no GEMPACK licence available, permanently out of reach | V9 route 1b (draftreport.pdf comparison) already PASSED and stands as the project's external validation; see "Two routes" above |
 
 Per "Revised guidance for the remaining phases" below, V2/V6/V4 are the next priority once the
@@ -422,7 +427,7 @@ merely a `%dev = value/base-1` numerical-instability artifact of thin cells. **V
 under option (b) as implemented. The cell-level comparison remains in the file, non-gating, as
 recorded above.
 
-**Round 5 — sub-region response dispersion, `test/diag_balinusa_subregion_dispersion.jl`
+**Round 5 — sub-region response dispersion, `test/scratch/diag_balinusa_subregion_dispersion.jl`
 (2026-08-02).** Tested whether BaliNusa's two 12-region sub-units (province 28 alone; provinces
 29+30) diverge more sharply in their %dev-from-benchmark under the shock than other islands'
 sub-region pairs do — a genuine aggregation-bias mechanism, distinct from the weight-imbalance
@@ -476,7 +481,7 @@ results:**
   limitation, not a bug to chase.
 
 **Round 6 (post-closure) — GDP itself, not just proxy flow components,
-`test/diag_regional_gdp_resolution.jl` (2026-08-02).** All five rounds above tested *flow*
+`test/scratch/diag_regional_gdp_resolution.jl` (2026-08-02).** All five rounds above tested *flow*
 variables (`xinvi`, `xsuppmar`, etc.) — GDP itself was never directly compared 6-region-direct
 vs. 12-region-aggregated-to-6. Motivated by a downstream research question (does a coal-export
 shock move Sumatra's / Kalimantan's regional GDP by a defensible sign/magnitude), this
@@ -519,6 +524,112 @@ docstring this reflects a known regional GDP identity imbalance in the benchmark
 itself, not a translation defect, and is a materially larger and distinct issue from the small
 model-side `wgdpdiff` check (0.56-0.95%) already on record — worth flagging separately if
 region 6 (MalukuPapua) GDP levels are ever quoted.
+
+**Discussion — 2026-08-02, does V4 undercut the reason this model was translated to Julia at
+all?** Raised directly by the user: INDOTERM was moved into Julia specifically for its
+comprehensive region coverage and its ability to answer regional-development questions — does
+V4's failure undermine that? Recorded here as a standing answer, not a one-off remark.
+
+- **What V4 tests vs. what the motivation depends on.** V4 asks "does the same region get the
+  same answer if the geography is split into a different number of regions" — a resolution-
+  consistency check. The motivation depends on "does the region axis carry real, differentiated
+  information" — a different question, and V4's own evidence answers it affirmatively: national
+  GDP is untouched (0.04-0.05% throughout, five rounds; 0.538% vs 0.578% in round 6), and islands
+  respond differently from each other in both sign and magnitude (Kalimantan's GDP deviation is
+  ~5.2% at both resolutions, an order of magnitude above every other region's <0.4%) — the
+  region axis is doing real, differentiated work, not producing noise.
+- **The BaliNusa mechanism is itself evidence of real regional detail, not a symptom of fake
+  detail.** Bali and Nusa Tenggara pull in opposite directions under the same national shock —
+  the model is resolving genuine sub-regional heterogeneity fine enough to tell two provinces on
+  one island apart. A model too coarse to discriminate between them wouldn't produce this
+  pattern at all.
+- **Quantified severity.** Every one of the 29 flagged region-aggregate sign disagreements has
+  |dev| < 0.3% (see below), and round 6 confirms the same for GDP directly: 5 of 6 regions
+  (Sumatra, Java, Kalimantan, Sulawesi, MalukuPapua) are sign-robust, only BaliNusa flips, and
+  its flip is between −0.021% and +0.035% — both readings are "no material regional effect."
+  Nothing a research claim would headline is in the flagged set.
+- **Field context.** Almost no published regional CGE study — including the GEMPACK TERM work
+  this model descends from — runs a cross-resolution consistency check like V4 at all. Its
+  failure is a disclosed, narrow, quantified caveat that most regional CGE work doesn't even
+  have the instrumentation to discover, not a defect unique to this translation.
+- **Conclusion, standing.** The comprehensive-region-coverage motivation stays intact for the
+  large majority of results, including directional claims about Sumatra and Kalimantan GDP under
+  a coal shock. The one honest restriction: for the small, named set of near-zero variables (see
+  the fragility tooling below), don't report a directional/sign claim without an independent
+  check.
+
+**Why the flagged sign flips are all small in magnitude — not a separate coincidence.**
+Follow-up question: is "every flip is under 0.3%" an independent, lucky mitigating fact, or does
+it follow from round 5's mechanism? It's entailed, not coincidental. A region's merged response
+can only straddle zero (and so be fragile to how it's resolved) if the underlying sub-region
+effects are opposite in direction AND small enough that neither dominates. A large,
+one-directional true response cannot flip sign from a small change in aggregation detail — that
+would require one sub-region's effect to overpower the other's by construction. So "small
+magnitude" and "sign-fragile" are the same phenomenon seen from two sides, not two findings that
+happen to agree. Counter-example that confirms this: Kalimantan's sub-regions disperse *more*
+than BaliNusa's in relative terms but never flip sign, because both sub-regions move the *same*
+direction — dispersion without opposite signs is harmless; opposite signs near zero is what
+flips.
+
+**Root cause of the BaliNusa-specific pattern, and whether region-weight imbalance explains it.**
+Two distinct notions of "imbalance" were tested; only one survived as the driver:
+- *Economic weight* (how much bigger one sub-province is than the other) — **ruled out**. Round
+  4's rebalance took BaliNusa's split from the worst-imbalanced island (3.25x) to the
+  best-balanced (1.23x); if weight imbalance were the root cause that fix should have eliminated
+  the flips. It reduced material flips (299→165) but did not eliminate them — evidence weight
+  imbalance is an amplifier, not the root cause.
+- *Direction of response* (which way each sub-region moves under the shock) — **the actual root
+  cause**. This is a nonlinear CES/CET substitution-nest property: a price shock can push one
+  sub-region toward more domestic sourcing while pushing a neighbouring sub-region the other way,
+  for reasons specific to each sub-region's own trade/sectoral composition. Merged, opposite
+  small pulls nearly cancel, landing close to zero — and which side of zero the merge lands on is
+  then sensitive to resolution/weighting detail. This is a genuine property of the model's
+  substitution structure under this shock, not a coding defect, and not fixable by region-map
+  weight tuning alone (round 4 already showed the best-possible weighting still left 165 flips).
+
+**Considered and deferred — disaggregating Bali and Nusa Tenggara into two separate regions.**
+Raised as a what-if: would un-merging the two directly fix this? Likely yes for BaliNusa
+specifically — with nothing left to cancel, each would very likely show its own well-determined
+sign. But not a free fix: (1) it is whack-a-mole, not a cure — the same near-zero-crossing
+pattern could recur one level down inside either new region's own province-level sub-splits,
+since the mechanism is general, not specific to BaliNusa; only true finest resolution (34
+regions, infeasible per the region-scaling measurements elsewhere in this file) provably removes
+it. (2) it changes the region count from the locked 6 to 7 — a change to what the validation
+model *is*, requiring explicit user authorization, not a test-methodology choice, and would
+require re-validating every gate that already passed at 6 regions (V1, V2, V5, V9) at the new
+resolution, plus checking whether Bali/Nusa Tenggara's source data supports a clean split (the
+benchmark already carries a known ≤38.5% regional-GDP-identity gap, see above). **Not
+implemented.** If pursued, the recommended first step is a test-instrument run (BaliNusa split
+as 7 vs 14 regions, same V4 method) before promoting it to the locked validation model — mirrors
+how 12-region was used as a test instrument for V4 itself, not a change to the validation model.
+
+**Tooling added, 2026-08-02 — `src/regional_confidence.jl`, a reusable early-warning check.**
+Directly answering "how can a modeler identify these cells for their own scenario, not just the
+one V4 happened to test." V4's flagged-cell list is an artifact of one test instrument
+(`coalprice.CMF +12%`); a different shock lands its near-zero crossings on different variables,
+and rerunning V4's full method (a second solve at 12 regions) per scenario costs ~15-30 min.
+Instead, `regional_confidence_report(vals, bmk, nr=6)` / `print_regional_confidence_report(...)`
+apply the empirical pattern above as a cheap, single-solve heuristic: after `run_model!`, collapse
+every flow variable to its region axis/axes (same rule as V4's `regional_totals`), compute
+`%dev = value/base - 1` per region, and flag any cell with `1e-6 <= |dev| < 0.5%`
+(`REGIONAL_FRAGILITY_THRESHOLD`, set with margin above the largest confirmed V4 flip, 0.298%;
+the lower `REGIONAL_NOISE_FLOOR = 1e-6` excludes pure solver-residual noise, ~1e-9, from a
+near-zero or unshocked re-solve). This does **not** rerun at a second resolution and flagging a
+cell is not proof of fragility — false positives are the intended, safe failure mode of a
+screen, not a defect. Exported from `IndotermJulia`; intended usage:
+```julia
+r = run_model!(agg, params, scenario)
+print_regional_confidence_report(r.values, bmk6, 6)   # bmk6 = benchmark_levels(params)
+```
+**Smoke-tested, 2026-08-02.** (1) Zero-shock benchmark re-solve: 0 flags after a noise floor was
+added — the first pass without one wrongly flagged `xtradmar` in every region at "-0.0%", pure
+1e-9-order solver noise misread as a near-zero result; fixed by adding `REGIONAL_NOISE_FLOOR`.
+(2) `coalprice.CMF +12%` at 6 regions only (no second-resolution rerun): 135 cells flagged,
+correctly including the known V4 near-zero set — `xinvi[BaliNusa]` 0.2046%, `xinv[BaliNusa]`
+0.2015%, `xinv_s[BaliNusa]` 0.2014% — matching `v4_run12_gate_b.log`'s independently-derived
+values (0.205%/0.202%/0.201%) to 3 decimal places, via a completely different code path (one
+6-region solve plus a magnitude heuristic, vs. two solves and a cross-resolution compare). This
+cross-check is strong evidence the heuristic measures the right thing.
 
 ---
 
@@ -716,6 +827,20 @@ diagnostic signal about *why* the point was hard, which is exactly what motivate
 the staged arclength approach that produced the conclusive (if inconclusive-verdict) result
 above.
 
+**Re-challenge 2026-09-11 — fold confirmed GENUINE under the patched arclength
+(`logs/v6_rechallenge_2026-09-11.log`).** Run 1 (long-run) solved 3/0; Stage A
+reached 3/0. Stage B through `trust=0.25`/`jumpmax=8.0` steering: **200 steps, 0
+rejections**, every step converged at `it=1`, `‖F‖∞≈4e-9`, trust region binding
+on essentially every step (200 fires), `dλ/ds≈0.0068` throughout —
+`TURNED at λ*≈0.9998410463`, matching the July unpatched fold (0.9998412167) to
+6 digits. No discontinuity-guard fire, no wandering: the old excursion to
+λ≈1.0277 does NOT reproduce and is retired as steering artifact, but the fold
+location itself survives honest micro-stepping. A kloc artifact cannot produce
+200 consecutive clean converged steps landing on the same 6-digit λ*.
+**V6 stays parked, now on decisive rather than suspicious evidence:** the
+short-run closure genuinely cannot sustain `blabnat=0.97`; report as
+"ordering not established for this scenario."
+
 ---
 
 ### V7 — A real regression suite
@@ -724,7 +849,7 @@ with a warm `cached_pipeline(6)`) · **Type:** process
 **Status: 🟢 written and passing, 2026-07-31** — `test/runtests.jl` exists and runs fully green:
 `V9 — coalprice.CMF external validation + regression baseline: 31/31 Pass`,
 `V2 — numeraire invariance (:gdppi vs :cpi): 67667/67667 Pass`. `Test.jl`-based (`@testset`), so
-a future `julia --project=IndotermJulia IndotermJulia/test/runtests.jl` fails loudly and
+a future `julia --project=. test/runtests.jl` fails loudly and
 specifically (file:line, expected vs actual) rather than requiring someone to eyeball a
 printed table.
 
@@ -761,8 +886,157 @@ been.
 
 ### V8 — Elasticity sensitivity analysis
 **File:** `test/sensitivity.jl` · **Cost:** high (N solves) · **Type:** validation
-**Status: 🔴 not started** — file does not exist yet. Correctly sequenced last of the numbered
-gates (Phase 3, "expensive or blocked") — each sweep point is a full solve.
+**Status: 🟡 RUN 2026-09-08, PARTIAL — 12 of 13 points.** See the gate table row for the
+result and its two caveats. Implements Phase A (13 solves of `COALPRICE_REFERENCE`: 1 centre
+point + 6 elasticity groups × {×0.5, ×1.5}), reusing `cached_pipeline(6)` and the same
+`NatMacro`/`MAINMACROS` headline-metric accessor V9 uses. Correctly sequenced last of the
+numbered gates (Phase 3, "expensive or blocked") — each sweep point is a full solve, and every
+cheaper gate (V1-V7, V9) is a precondition for this one meaning anything.
+
+#### The `P028 ×0.5` fold — open; the arclength verdict is NOT usable (2026-09-10)
+
+The one missing point. `test/scratch/_probe_p028.jl` re-runs it at `h0=0.05, hmin=1e-6,
+maxit=60` and brackets with `×0.6` then `×0.75`. **Still unresolved.** Completed verdicts:
+
+| case | natural-parameter continuation | arclength fallback |
+|---|---|---|
+| `P028 ×0.5`  | `⛔` `hmin` collapse at `t = 0.642648`, 117 steps / 74 rejections, 10497s | `TURNED at λ ≈ -0.00836`, then `⛔ dsmin` at `λ = -7.3369` |
+| `P028 ×0.6`  | `⛔` `hmin` collapse at `t = 0.136084`, 200 steps / 73 rejections, 7325s  | `TURNED at λ ≈ -0.23744`, then `⛔ dsmin` at `λ = -7.2866` |
+| `P028 ×0.75` | `⛔` `hmin` collapse at `t = 0.102435`, 55 steps / 72 rejections, 8795s | `TURNED at λ ≈ -0.07235`, then `⛔ dsmin` at `λ = -0.39660` |
+
+**What the continuation result supports.** `t = 0` solves cleanly under the perturbed
+calibration (`status=converged, ‖F‖∞=1.43e-9`), so the recalibration is consistent and the
+obstruction is on the path, not at the origin. Accepted steps cost ~25-37s and converge in 3-4
+Newton iterations right up to the wall (`t=0.05, 0.15, 0.35, 0.55, 0.60, 0.625`), and failed
+residuals grow monotonically with overshoot (`6.5e-5` at t=0.65 → `2.96e-4` at 0.675 → `2.51e-3`
+at 0.70 → `0.0299` at 0.75). `t = 0.65` fails at essentially the same residual from three
+different step sizes (`6.316e-5`, `6.486e-5`, `6.497e-5`) — the failure is a property of the
+target point, not of the approach. Critical point bracketed at `0.625 < t* < 0.65`, reproducing
+the original run's `t = 0.6426` across two runs with different step settings.
+
+**What it does NOT support — the arclength fallback tripped its own documented trap.** The
+`TURNED`/`dsmin` verdicts must not be read as "the full shock does not exist at this
+elasticity." Four signatures, all pointing the same way:
+
+1. **The local coordinate locked onto a large accounting-type variable.** `arclength.jl` closes
+   the augmented system with `e_klocᵀ` and `nfun = z[kloc] - (z_prev[kloc] + ds*τ[kloc])` —
+   *local-parameter*, not true pseudo-arclength, so `λ` is unconstrained by `ds`. Here
+   `kloc = gro[2,3]`, driver value **542000.0**. Lines 366-390 of that file document this exact
+   failure mode, measured 2026-07-31: `kloc` locking onto a huge-valued variable makes
+   `ds*τ[kloc]` drag the corrector "to an unrelated root," the first accepted step moves `λ` the
+   wrong way, and "the reported turning point ... was nowhere near the documented fold ...
+   because the branch being traced was never the real one." The 2026-07-31 fix was aimed at
+   `del*` reporting variables; `gro` is not a `del*` and slipped past it.
+2. **The first accepted step is discontinuous.** `λ` jumps `0.2605714687 → -0.008359529365`
+   — a move of −0.269, *away* from the target 0.4054651 — at `ds = 1.22e-6` with `dλ/ds = 1.0`.
+   The step exceeds its own predicted `λ`-displacement by a factor of ~2e5. It reached that
+   point through nine rejected predictors whose residuals fall geometrically with `ds`
+   (`2.839e121 → 2.03e60 → 5.43e29 → 2.808e14 → 6.385e6 → 961.5 → 70.88 → 4.12 → 0.07438`),
+   every one of them rejected at `corrector it=1` with `SingularException`.
+3. **The post-turn family is frozen.** `‖F‖∞` is pinned at `4.598e-9` to four significant
+   figures across dozens of steps and a `λ` range of ~7.3, converging at `it=1` or `it=2`. A
+   solution set that does not respond to `λ` is not the physical branch.
+4. **Non-monotonicity.** `×0.6` — the *milder* perturbation — folds at `t=0.136`, far earlier
+   than `×0.5`'s `t=0.643`; and both arclength runs terminate near `λ ≈ -7.3` (a ~99.93% coal
+   price *collapse*). One common numerical attractor, not two independent economic findings.
+
+`arclength.jl`'s own guard says it: a fold cannot defeat this method, so a `TURNED` verdict from
+it means "suspect a bifurcation, a domain boundary, or a genuinely singular augmented system."
+
+**Reportable status of the missing point:** `P028 ×0.5` is *not attainable under this
+continuation*, `t_reached = 0.6426`. Not "the target does not exist." Two things must happen
+before any stronger claim: (a) `test/verify_scenario_complete.jl` against
+`COALPRICE_REFERENCE` — this project has already once reported a fold (`λ* = 0.9908083`) as a
+model property when it was an artifact of a *missing* shock (`TERM.CMF:113 delUnity=1`); and
+(b) the `kloc` selection in `arclength.jl` must exclude large-valued accounting variables the
+way the 2026-07-31 fix intended. **No `arclength.jl` change has been made** — the handoff bars
+refactoring solver code without agreement, and this is solver code.
+
+Full trace: `logs/p028.log` (gitignored). Earlier partial: `logs/p028_2026-09-09_1555_stopped.log`.
+
+#### Follow-up, 2026-09-11 — both suspected causes chased down
+
+**1. The scenario is complete. The "one line short" explanation is ruled out.**
+`test/verify_scenario_complete.jl` only ever covered `TERM_CMF_REFERENCE`, so it could not
+answer the question this fold raised. It now parses `origin/coalprice.CMF` as well, and checks
+**swaps** as well as shocks — a missing swap leaves a variable pinned that the source lets
+adjust, which can manufacture a fold just as readily as a missing shock. Swaps are compared as
+ordered pairs, because `apply_swaps!` takes `(endogenous, exogenous)` in that order and a
+transposed pair is a real defect a name-set comparison would wave through. Result: 1 shock and
+4 swaps, same variables, same orientation. `COALPRICE_REFERENCE` is a faithful transcription,
+so the `P028` obstruction is **not** the `λ* = 0.9908083` failure repeating.
+
+**2. The arclength defect is fixed, and the diagnosis moved while fixing it.** It is not really
+the `del*` mask. The metric `wt = 1/max(|vᵢ|, ε)` is built from `dz/dλ` **at the start point**,
+and this routine is only ever entered at an `hmin` collapse — i.e. exactly where `dz/dλ` is
+blowing up (measured `‖dz/dλ‖∞ = 5.91e6`). Normalising to `‖wt ⊙ τ‖∞ = 1` then makes the
+steering component's own displacement `ds·|v[kloc]|`, so at `ds = 1.22e-6` the closing row
+demanded a **7× jump in a scaled coordinate whose own value is ≈ 1**. The metric is not wrong —
+`ds·τ` genuinely is an arclength step of `ds` in it. What was missing is any bound on where the
+Euler **predictor** may land. Two guards added (`src/arclength.jl`, commit `3818824`):
+
+- **`trust = 0.25`** — no state component may move more than 25% of its own magnitude in one
+  predicted step; `ds` shrinks to enforce it. This can push `ds` below `dsmin`, deliberately:
+  near a real fold the state moves a great deal while `λ` barely moves, so honest continuation
+  there *is* slow. §1's weighting bought its speed by taking steps the tangent did not justify.
+- **`jumpmax = 8.0`** — an accepted step whose actual `λ` move exceeds its predicted one by more
+  than 8× is rejected as a branch jump. The closing row pins one coordinate and leaves `λ` free,
+  so `F = 0` plus the closing equation does **not** imply the corrector stayed on the branch it
+  started from. This is the direct catch for `Δλ = −0.269` against a predicted `1.22e-6`.
+
+**Regression: `test/verify_arclength_fallback.jl` passes.** On the `TERM_CMF_NO_DELUNITY`
+fixture — a fold that genuinely exists — the trust region fires **26 times**, the discontinuity
+guard fires **0 times**, and the run still locates the documented fold at `λ* = 0.9908086`
+against an expected `0.9908083`. Active but not obstructive, and no false positives on a real
+traversal. `logs/arclength_regression_2026-09-10.log`.
+**Re-run 2026-09-11 on the merged tree: identical.** Trust region 26 fires,
+discontinuity guard 0, `TURNED at λ ≈ 0.9908085833`, final `‖F‖∞ = 2.258e-10`,
+204 steps / 10 rejections, 43.3 min, `✅` plumbing verdict.
+`logs/arclength_regression_2026-09-11.log`.
+
+**One earlier suspicion was weak evidence and is withdrawn.** The `‖F‖∞` pinned at `4.598e-9`
+across many steps was listed above as a signature of a frozen, non-physical family. The
+regression run pins `‖F‖∞` at `2.258e-10` the same way across ~200 steps while tracking a fold
+whose location is independently known to 7 digits. A constant converged residual under small
+steps is normal, not diagnostic. The other three signatures — the discontinuous first step, the
+`kloc` magnitude, and the non-monotone fold locations — stand on their own.
+
+**3. The fold locations are not monotone in the elasticity, which wants explaining.**
+
+| `P028` factor | `t` reached |
+|---|---|
+| `×0.5`  | 0.6426 |
+| `×0.6`  | 0.1361 |
+| `×0.75` | 0.1024 |
+| `×1.0`  | 1.0 (solves; it is one of the 12 completed V8 points) |
+
+The *mildest* perturbations stop earliest, and the most extreme one gets six times further.
+For a smooth family of models that ordering is hard to read as "low substitution elasticities
+make the shock economically infeasible." It does not overturn the `×0.5` continuation result —
+`t = 0.65` fails at essentially identical residual from three different step sizes, which is a
+property of that point — but it does mean the *family-level* story ("the lower half of the
+`P028` range is unreachable") has no support, and `test/scratch/_probe_p028.jl`'s own
+"Hypothesis B" conclusion must not be quoted. Open question, not a finding.
+
+**Validation completed, 2026-09-11 — PASS (outcome 2+3 combined).**
+`test/scratch/_probe_arclength_guards.jl` re-ran `P028 ×0.75` under the patched
+routine (`logs/arclength_guards_2026-09-11.log`, 166 min). Continuation reproduced
+the baseline exactly (`⛔ hmin` at `t = 0.102435`, 55 steps / 72 rejections). At the
+handover the trust region fired immediately (`ds 0.005 → 1e-7` — the predictor would
+have moved a state component >25% of itself), the corrector then converged to `F = 0`
+but landed at `Δλ = −0.0037` against a predicted `1e-7` (ratio 37400, coordinate
+`pcap[2,3]`) — and the discontinuity guard **rejected it as a branch jump**. `ds`
+collapsed to `dsmin` with **no `TURNED` line**. The guards do exactly what they were
+written for on the case that motivated them: no false turning point, honest collapse.
+The missing V8 point stays reported as not-attainable-under-this-continuation; the
+`TURNED`/"does not exist" verdicts in the table above remain withdrawn, not replaced.
+
+
+**Observability, three defects deep — do not regress these.** The first two attempts produced
+*no* recoverable trace, because a force-kill discards Julia's stdout buffer. Getting a live
+trace required all three of: `flush(stdout)` in the probe (commit `7d8e919`), `verbose = true`
+on the `run_model!` call (commit `72d78d3`), and a per-line flush inside `run_model!`'s own
+`log` closure (commit `d22dbea`). Fixing any two of the three still leaves a silent log.
 **Design written:** `V8_ELASTICITY_SENSITIVITY.md`, 2026-08-01 — traces all 6 elasticity
 groups (SLAB/P028/P015/SMAR/SCET/P018) from source to consumption, recommends a group-level
 (not per-sector) ±50% one-at-a-time sweep against `COALPRICE_REFERENCE` (13 solves ≈ 1-1.5h),

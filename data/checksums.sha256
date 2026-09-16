@@ -1,0 +1,11 @@
+# INDOTERM-Julia input data provenance.
+# Verify with:  bash scripts/verify_data.sh
+#
+# Committed inputs (checked by sha256sum -c):
+4682f472fbff95e9d5ac9d4911d2ff5c62c455532db5ed9ae300379f80c0cf5d  national_data.zip
+99c8416f94dec38df61ae63f73b2ab8b931f02e117952ad0320d3ce2c5a51829  regsupp_data.csv
+77f7cb491cc2ce9f242d6a73e2a0ad88f84d91766d32aff5f0f2a653358b761d  distgone_data.csv
+#
+# Derived artifact (NOT committed; produced by unzipping national_data.zip into data/).
+# Checked separately by scripts/verify_data.sh:
+# derived  national_data.csv  044c325d7a92965aeee2bb1b69aabb59cb835fe10ea6d0cfe2ea998dc64f21e0
