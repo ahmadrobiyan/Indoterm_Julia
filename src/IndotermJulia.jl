@@ -59,6 +59,7 @@ export GDPReport, GDPINCCAT, GDPEXPCAT
 export run_model!, ScenarioResult, pct, logpct
 export Scenario, describe, TERM_CMF_REFERENCE, TERM_CMF_NO_DELUNITY, COALPRICE_REFERENCE
 export HILIRISASI_BAN, HILIRISASI_SMELTER_JAVA, HILIRISASI_SMELTER_EAST, HILIRISASI_FULL
+export GOVSPEND_EXPANSION, LABPROD_LONGRUN, IMPORTPRICE_DOWN
 export regional_confidence_report, print_regional_confidence_report, REGIONAL_FRAGILITY_THRESHOLD
 
 end # module IndotermJulia

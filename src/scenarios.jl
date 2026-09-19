@@ -390,3 +390,180 @@ const HILIRISASI_FULL = Scenario(
   single VariableRef). If the homotopy stalls, stage the legs rather than
   reporting a partial t as a result.""",
 )
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Macro & fiscal scenarios
+#
+# Constructed here, NOT transcribed from a `.CMF` file. `source` says so, and the
+# `notes` field carries the policy mapping and every closure deviation that
+# matters — the same obligation `HILIRISASI_*` carries above. No number from these
+# runs should be quoted without it.
+#
+# ONE closure is used, because it is the one that actually solves. All three
+# scenarios run under `TERM_LR_SWAPS_MATCHED` + numeraire = :gdppi — the textbook
+# LONG RUN: capital mobile (`xcap = faccum`), national employment fixed
+# (`flabsup_id = xlab_id`), the nominal balance of trade fixed
+# (`houslack = shrBoTnom2`), and regional real government following regional real
+# GDP (`fgovtot = fgovtot3`). `delUnity = 1` must accompany it: at 0 the
+# accumulation block welds all 150 `xcap` cells to their benchmark values (see
+# TERM_CMF_REFERENCE's notes) and the branch folds.
+#
+# THE SHORT-RUN CLOSURE WAS TRIED AND REJECTED — EMPIRICALLY, NOT ON PRINCIPLE.
+# `COALPRICE_SWAPS` (the draft report's short-run comparative static: `xcap`/`xlnd`
+# fixed in place, real wages fixed) is the natural home for an economy-wide demand
+# shock and is what the constructed `HILIRISASI_*` scenarios use, so it was tried
+# first for the government-spending scenario. Under it the benchmark still solves
+# EXACTLY (‖F‖∞ = 1.4e-9, "start point already satisfies F(x)=0"), but every
+# shocked homotopy point grinds: the corrector stalls around ‖F‖∞ ≈ 1e-5 with the
+# damped-CGNR fallback maxed at 200 iterations per step, at BOTH +10% and +2%
+# government demand, and never reaches tol. That is the "grinding" failure mode
+# the project already records for economy-wide shocks under a rigid-factor closure
+# (V6's `TERM_SR_SWAPS` note), and it is a property of the closure, not of the
+# shock size. The long-run closure reaches t = 1 in 3 steps with 0 rejections.
+# Report the short-run variant as unreachable in this port, not as a result.
+#
+# WHY LONGRUN.CMF's OWN CLOSURE IS NOT USED. `origin/LONGRUN.CMF` opens its
+# long-run block with `swap flabsup = flab_io;`. There is no variable `flabsup`
+# in `TERM.TAB` — Excerpt 38 (`TERM.TAB:1983-1996`) declares `flabsupA`,
+# `flabsupB` and `flabsup_id`, and the plain name is a pre-rename leftover — and
+# none in the port, so `apply_swaps!` would raise on an undeclared name.
+# `TERM_LR_SWAPS_MATCHED` is the port's own genuine long-run closure, which is the
+# closer analogue to LONGRUN.CMF's intent than the short-run static that
+# `IMPORTPRICE_DOWN` would otherwise have had to use.
+# ═══════════════════════════════════════════════════════════════════════════
+
+"""
+Government spending expansion — economy-wide real government demand **+10%**.
+
+**Instrument mapping.** `fgovgen` is the scalar economy-wide government demand
+shifter, and it is the last term of `E_xgov` (`build_equations.jl:684`):
+
+    xgov(c,s,d) = XGOV0(c,s,d) · exp( fgovtot(d) + fgov(c,s,d) + fgov_s(c,d) + fgovgen )
+
+so a target of `logpct(10)` raises real government demand by 10% in every
+commodity, source and region. The `fgovtot`/`fgov_s` terms are left at 0, i.e.
+the **level** of government demand moves while its composition is unchanged.
+
+**Why `logpct` and not `pct`.** `fgovgen` is declared unbounded
+(`build_model!.jl:206`), so it is an additive, benchmark-0 shifter entering that
+expression as a bare summand — exactly the `fpexp_d` case. `pct(10)` = 1.10 would
+apply `exp(1.10) − 1` ≈ **+200%**; `logpct(10)` = log(1.1) is the +10% intended.
+The declaration is the test: unbounded ⇒ additive ⇒ `logpct`.
+
+**Closure — long run.** See the section header for why the short-run closure was
+tried first and rejected: it reproduces the benchmark exactly but grinds to a
+halt on any shocked point, at +2% and +10% alike. Capital is therefore mobile and
+national employment is fixed, with `delUnity = 1` advancing the year.
+
+There is NO financing swap in either closure: government revenue and the budget
+deficit absorb the expansion, and no tax or transfer instrument is touched. Read
+the result as the demand-side incidence of the spending, NOT as a balanced-budget
+exercise. `fgovtot = fgovtot3` is active here, so regional real government
+spending follows regional real GDP.
+
+**Relation to `fund1.cmf`.** That file raises `fgov_s("construction","SCC")` — one
+commodity in one region — to trace regional composition. This scenario is its
+economy-wide counterpart: a single scalar moves everything, which is the macro
+question rather than the fiscal-incidence one.
+"""
+const GOVSPEND_EXPANSION = Scenario(
+    name   = "macro/fiscal — economy-wide government demand +10%",
+    source = "constructed; mirrors fund1.cmf's fgov lever, economy-wide",
+    swaps  = TERM_LR_SWAPS_MATCHED,
+    shocks = ["fgovgen" => logpct(10), "delUnity" => 1.0],
+    numeraire = :gdppi,
+    notes = """
+  fgovgen is an additive LOG-space shifter (unbounded → benchmark 0), so the
+  target is log(1.10), not 1.10. Long-run closure: xcap mobile, national
+  employment fixed, delUnity=1. The deficit is endogenous — no financing swap, no
+  tax instrument moved. Composition of government demand is unchanged; only its
+  level. The short-run COALPRICE_SWAPS variant DOES NOT SOLVE in this port (see
+  the section header) — do not report it as an alternative result.""",
+)
+
+"""
+Labour-productivity gain in the long run — `blabnat = -3%` with national
+employment fixed.
+
+**Shock, and its sign.** `blabnat` drives `alab_o`, labour-AUGMENTING technical
+change (`TERM.TAB:460`, `:468`), exactly as in `TERM_CMF_REFERENCE`. `-3` is
+therefore a 3% productivity **GAIN** and real GDP must RISE — it is NOT a
+labour-supply cut and must not be described as one. `pct(-3)` = 0.97 keeps the
+source's units. `delUnity = 1` advances one year and releases the
+capital-accumulation block.
+
+**Closure — long run, and how it differs from `TERM_CMF_REFERENCE`.** Both use
+the same capital/investment/consumption/government swaps, both shock the same two
+variables and both pin the GDP price index, so the entire difference is on the
+labour axis:
+
+  * `TERM_CMF_REFERENCE` uses `TERM_CMF_SWAPS`, i.e. `TERM.CMF:110
+    delfwage = flabsup_id` — the national real-wage adjustment mechanism, a third
+    variant that is neither textbook long-run nor short-run (`closures.jl`).
+  * This scenario uses `TERM_LR_SWAPS_MATCHED`, which replaces it with
+    `termlr.cmf`'s textbook long-run recipe `flabsup_id = xlab_id`: national
+    employment is FIXED and the real wage carries the whole adjustment.
+
+The same cell reads differently under the two, so quote a number only with its
+closure named. `TERM_LR_SWAPS_MATCHED`'s docstring forbids using it to *reproduce*
+`TERM.CMF`'s own scenario — that is not what happens here: this is a deliberately
+different experiment, which is precisely the "matched long-run leg" the constant
+was built for (it is what V6 compares against `TERM_SR_SWAPS`).
+"""
+const LABPROD_LONGRUN = Scenario(
+    name   = "macro — labour productivity +3%, long run (national employment fixed)",
+    source = "constructed; TERM.CMF:112 shock under closures.jl TERM_LR_SWAPS_MATCHED",
+    swaps  = TERM_LR_SWAPS_MATCHED,
+    shocks = ["blabnat" => pct(-3), "delUnity" => 1.0],
+    numeraire = :gdppi,
+    notes = """
+  blabnat is labour-AUGMENTING technical change: -3 is a 3% productivity GAIN, so
+  real GDP rises. delUnity=1 is load-bearing (at 0 it hard-pins all 150 xcap
+  cells). Differs from TERM_CMF_REFERENCE ONLY on the labour axis — here
+  flabsup_id = xlab_id fixes national employment, where the reference uses
+  TERM.CMF:110 delfwage = flabsup_id. Name the closure when quoting.""",
+)
+
+"""
+World import-price shock — foreign-currency import prices **-10%**, uniform.
+
+**Shock.** `pfimp` is the commodity-level world price of imports in foreign
+currency (`build_model!.jl:85`, an index benchmarked at 1.0), so a uniform -10% is
+`pct(-10)` on all 25 aggregated commodities — the same instrument and the same
+magnitude as `origin/LONGRUN.CMF`'s `shock pfimp = uniform -10;`. `pfimp` is
+indexed by commodity only, so the uniform shock has to be spelled as one target
+per commodity; there is no national import-price scalar (unlike exports, which
+have `natfpexp`/`natfqexp`).
+
+**Closure — long run, the closer analogue to LONGRUN.CMF.** LONGRUN.CMF is itself
+a long-run closure, so `TERM_LR_SWAPS_MATCHED` is nearer its intent than a
+short-run static. Its exact swap list still cannot be transcribed (`swap flabsup
+= flab_io;` names a variable `TERM.TAB` does not declare — see the section
+header), so the port's own genuine long-run closure is used instead: capital
+mobile, national employment fixed, `delUnity = 1` advancing the year.
+
+**One deliberate numeraire deviation.** LONGRUN.CMF leaves `phi` exogenous (an
+exchange-rate numeraire; it has no `swap phi = GDPPI`). This scenario uses the
+standard real numeraire `:gdppi` instead, for consistency with the other two
+macro scenarios in this section. Real quantities are unaffected by that choice —
+only the nominal yardstick — but the CPI column is only comparable against a run
+using the same numeraire (the same caveat `test/reference/draftreport_coalprice.md`
+records for COALPRICE_REFERENCE).
+
+**Reachability.** 26 shocks (25 commodities + `delUnity`) means `run_model!`'s
+arclength fallback is unavailable — it traces a single variable.
+"""
+const IMPORTPRICE_DOWN = Scenario(
+    name   = "macro — world import price -10% (all commodities)",
+    source = "constructed; shock mirrors LONGRUN.CMF's pfimp = uniform -10",
+    swaps  = TERM_LR_SWAPS_MATCHED,
+    shocks = vcat([("pfimp", c) => pct(-10) for c in eachindex(AGGCOM)],
+                  ["delUnity" => 1.0]),
+    numeraire = :gdppi,
+    notes = """
+  25 shocks, one per aggregated commodity (pfimp is indexed by commodity and
+  benchmarks at 1.0, so pct(-10) = 0.90), plus delUnity=1. Long-run closure.
+  Numeraire is :gdppi, NOT LONGRUN.CMF's exchange rate — real quantities are
+  unaffected, but do not compare its CPI against an :exrate run. 26 shocks, so
+  the arclength fallback is unavailable.""",
+)
