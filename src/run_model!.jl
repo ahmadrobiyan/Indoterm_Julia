@@ -209,7 +209,7 @@ function run_model!(agg, params::Dict{String,Any};
     end
 
     # ── Gate: the closed model must still reproduce its own base year ────────
-    r0 = solve_newton!(m, vars; maxit=5, tol=tol, verbose=false, linsolve=linsolve)
+    r0 = solve_newton!(m, vars; maxit=5, tol=tol, verbose=verbose, linsolve=linsolve)
     log("benchmark: status=$(r0.status)  ‖F‖∞=$(r0.residual)")
     r0.residual <= tol || error(
         "benchmark solve failed under this closure (‖F‖∞ = $(r0.residual) > $tol). " *
@@ -259,13 +259,25 @@ function run_model!(agg, params::Dict{String,Any};
     res = r0.residual
     vals = r0.values
     path = Tuple{Float64,Int,Float64}[]
+    # P0 cumulative stall cap (HIGH review item): consecutive STALL-SIGNATURE
+    # failures with no NET t-progress. A bad predictor (H1) clears in a few
+    # halvings; a genuinely near-singular t (H5) never clears. Cap at K — on
+    # breach, dump diagnostics and STOP, never crawl silently.
+    # NET-progress gated (review symmetry fix): the reset fires ONLY when s
+    # advances by more than STALL_T_EPS since the last reset. Alternating
+    # trigger types or trivial micro-steps do NOT reset — without this, an
+    # H5-true system crawls indefinitely with a lower duty cycle.
+    n_stall_abort = 0
+    STALL_ABORT_CAP = 8
+    s_at_reset = 0.0
+    STALL_T_EPS = 1e-9
     log("homotopy: t = 0 → 1  (h0=$h0, tol=$tol)")
 
     while true
         s_try = min(1.0, s + h)
         snap = _snapshot_starts(m)
         _set_t!(s_try)
-        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=false,
+        el = @elapsed r = solve_newton!(m, vars; maxit=maxit, tol=tol, verbose=verbose,
                                           linsolve=linsolve)
 
         if r.residual <= tol
@@ -282,14 +294,52 @@ function run_model!(agg, params::Dict{String,Any};
             s >= 1.0 && break
             # Grow only after a genuinely easy step — growing on a step that
             # merely scraped in re-triggers the failure it just escaped.
-            r.iters <= grow_iters && (h = min(hmax, 2h))
+            # P1 (H1 fix): cap growth at 1.5x, not 2x — one cheap success must
+            # not double h into a predictor outside the corrector's basin.
+            r.iters <= grow_iters && (h = min(hmax, 1.5h))
+            # NET-progress-gated reset (review symmetry fix): only an s-advance
+            # beyond eps since the last reset clears the stall counter.
+            if s - s_at_reset > STALL_T_EPS
+                n_stall_abort = 0; s_at_reset = s
+            end
         else
             nrejects += 1
             _restore_starts!(m, snap)      # back to the last real solution
             _set_t!(s)
+            # P0 stall-SIGNATURE accounting (review CRITICAL fix): the counter
+            # tracks the STALL pattern, not the :no_progress label. Signature =
+            # corrector burned maxit iters ending within 10x of tol but above
+            # it (plateau), OR tripped the in-loop STALL-ABORT. A tight exact
+            # LU solve whose step is then rejected (lin_rel~1e-5, H1/fold
+            # territory — NOT H5) must NOT increment: H5 predicts a degraded
+            # LINEAR solve, and lin_rel~1e-5 contradicts its own definition.
+            is_stall_sig = r.status == :no_progress ||
+                (r.status == :maxit && r.residual <= 10tol && r.residual > tol)
+            if is_stall_sig
+                n_stall_abort += 1
+            elseif r.status != :no_progress
+                # A different failure regime — but still net-gated: only a real
+                # s-advance clears accumulated stall evidence.
+                if s - s_at_reset > STALL_T_EPS
+                    n_stall_abort = 0; s_at_reset = s
+                end
+            end
             h /= 2
             log("  ✗ t=$(round(s_try; sigdigits=6)) failed ($(r.status), " *
-                "‖F‖∞=$(round(r.residual; sigdigits=4))) — h → $(round(h; sigdigits=3))")
+                "‖F‖∞=$(round(r.residual; sigdigits=4))) — h → $(round(h; sigdigits=3))" *
+                (is_stall_sig ? "  [stall-sig $n_stall_abort/$STALL_ABORT_CAP]" : ""))
+            if n_stall_abort >= STALL_ABORT_CAP
+                log("  ⛔ STALL CAP BREACHED at t=$(round(s; sigdigits=6)): " *
+                    "$STALL_ABORT_CAP consecutive STALL-SIGNATURE failures with no net t-progress. " *
+                    "This is NOT a bad predictor (H1 clears in a few halvings) — " *
+                    "suspect genuine near-singular Jacobian (H5) or floor " *
+                    "non-smoothness (H6). Escalating to diagnostic dump; STOPPING, " *
+                    "not retrying silently. Run diagnose_jacobian(m, vars) at this " *
+                    "point, partitioned by region and margin block.")
+                rep = gdp ? calculate_gdp(vals, params) : nothing
+                return ScenarioResult(String(name), false, s, nsteps, nrejects, res,
+                                      path, vals, rep, r0.residual)
+            end
             if h < hmin
                 log("  ⛔ step collapsed below hmin at t=$(round(s; sigdigits=6)). " *
                     "Every earlier step converged, so the obstruction is at that point " *

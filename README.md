@@ -113,20 +113,12 @@ out of this model. Full detail in `VV_PLAN.md`.
 | **External validation vs published GEMPACK result — V9** | ✅ all 8 Table 2 columns, sign + within 0.5 pp |
 | Aggregation consistency — V4 | 🟤 closed as a **disclosed limitation** |
 | Closure ordering (short-run leg) — V6 | 🔴 **unresolved**, time-boxed |
-| Elasticity sensitivity — V8 | 🟡 implemented (`test/sensitivity.jl`), **not yet run** |
+| Elasticity sensitivity — V8 | 🟤 **closed done-with-limits** — 12/13 points, all 10 headline metrics sign-stable (see `VV_PLAN.md` V8) |
 
-### Known limitations — read before citing
+### Known limitations — read before citing (updated 2026-09-17)
 
-1. **Results are 25 sectors × 6 island groups, not 34 provinces.** Full 34-region
-   solving needs Excerpt 49 (`Substitute`/`Backsolve`) condensation: Jacobian LU
-   fill-in already exceeds 16 GB at 20 regions. Do not describe results as
-   provincial.
-2. **No elasticity sensitivity analysis has been run (V8).** The sweep is implemented
-   (`test/sensitivity.jl`, `bash scripts/run_gates.sh full`) but has never been executed. Benchmark replication
-   is structurally insensitive to exactly the parameters that drive counterfactual
-   results — a mistranslated substitution elasticity changes nothing at the
-   benchmark and everything off it. Magnitudes are not yet defensible against a
-   sensitivity challenge.
+1. **Results are 25 sectors × 6 island groups, not 34 provinces.** The 34-province system now **factorizes** (Schur PRIMARY, 234M nnz / ~15.7 GB, benchmark 8.7e-9 — `logs/memledger_34_b.log`) — the old “>16 GB at 20” wall is withdrawn. **Shocked 34-province solves are closed `non-gating` 2026-09-17** — benchmark and structure are available at 34, scenario impacts are reported at 6 until a solver change is authorized. Do not describe shocked results as provincial.
+2. **Elasticity sensitivity (V8) — closed done-with-limits 2026-09-11.** 12 of 13 points completed; all 10 headline metrics sign-stable. One point (`P028 x0.5`) has no solution along either the shock or elasticity path — ranges are lower bounds. See `VV_PLAN.md` V8 for caveats.
 3. **V6 (short-run closure ordering) is unresolved.** Report as "ordering not
    established for this scenario," not as a pass.
 4. **V4 aggregation consistency is a disclosed limitation.** 29 of 534 region-level

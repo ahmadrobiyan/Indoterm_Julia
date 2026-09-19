@@ -1,6 +1,6 @@
 # Reaching 34 regions: Krylov vs Excerpt 49 condensation
 
-**Status: 🟡 ASSESSMENT COMPLETE 2026-09-12. Stage 1 (decisive measurement) proposed, not started.**
+**Status: 🟢 Stage 1 complete, Stage 2a seam proven, Stage 2b.4/2b.5 CLOSED 2026-09-17 as `non-gating` (user decision). 34-province shocks not required for validation — 6 island groups stays the publication model.**
 
 Companion to `VV_PLAN.md` and `PLAN.md` §"Region-scaling measurement". Everything the
 model currently reports is 25 sectors × **6 island groups**; the data pipeline already produces

@@ -1,0 +1,88 @@
+using IndotermJulia
+using DataFrames
+using Printf
+
+# 1. Setup
+println("Loading 6-region pipeline...")
+agg, params = cached_pipeline(6)
+
+# Define the coal commodity index
+coal_idx = findfirst(x -> x == "coal", params[:commodities]) 
+if coal_idx === nothing
+    # Fallback to searching by name in the parameter list if commodity list is different
+    coal_idx = 5 # Based on the 25-sector list: 5 is Coal
+end
+
+# 2. Define Scenarios
+# We apply a negative shock to the export price of coal for all regions
+# Shock format: (:variable, :commodity, :region, value)
+scenarios = [
+    ("Coal_Drop_20", -0.20),
+    ("Coal_Drop_50", -0.50)
+]
+
+results_data = []
+
+for (name, shock_val) in scenarios
+    println("\nRunning scenario: $name (Shock: $(shock_val*100)%)")
+    
+    # Construct the scenario object
+    # Variable :fpexp is the world export price
+    sc = Scenario(name, "Research", [(:fpexp, :coal, :all, shock_val)])
+    
+    try
+        # Solve using the validated REFERENCE closure
+        r = run_model!(agg, params, sc, closure=:TERM_CMF_REFERENCE)
+        
+        # Extract key metrics
+        # r.values contains the levels of variables
+        # We calculate the % change relative to benchmark_levels(params)
+        bmk = benchmark_levels(params)
+        
+        for (reg_name, reg_id) in params[:regions]
+            # GDP
+            gdp_shock = (r.values[:RealGDP][reg_id] - bmk[:RealGDP][reg_id]) / bmk[:RealGDP][reg_id] * 100
+            
+            # Coal Employment (Specific)
+            # Assuming Employment is indexed [commodity, region]
+            emp_coal_shock = (r.values[:Employment][coal_idx, reg_id] - bmk[:Employment][coal_idx, reg_id]) / bmk[:Employment][coal_idx, reg_id] * 100
+            
+            # Total Regional Employment
+            # Sum of employment across all sectors for that region
+            total_emp_shock = (sum(r.values[:Employment][:, reg_id]) - sum(bmk[:Employment][:, reg_id])) / sum(bmk[:Employment][:, reg_id]) * 100
+            
+            push!(results_data, (
+                name = name,
+                region = reg_name,
+                d_gdp = gdp_shock,
+                d_emp_coal = emp_coal_shock,
+                d_emp_total = total_emp_total = total_emp_shock
+            ))
+        end
+        println("✓ Scenario $name converged.")
+    catch e
+        println("❌ Scenario $name failed: $e")
+    end
+end
+
+# 3. Format and Print Results
+df = DataFrame(results_data)
+regions = params[:regions] |> collect |> sortby(x -> x[2]) # Sort by region index
+
+println("\n" * "="^80)
+println("RESEARCH REPORT: THE COAL TRAP (6-REGION IMPACT)")
+println("="^80)
+println(Sprintf("%-15s | %-12s | %-15s | %-15s", "Region", "Scenario", "Δ Real GDP %", "Δ Coal Emp %"))
+println("-"^80)
+
+for reg_name in [r[1] for r in regions]
+    for (name, _) in scenarios
+        row = df[(df.region .== reg_name) .& (df.name .== name), :]
+        if !isempty(row)
+            @printf("%-15s | %-12s | %-15.3f | %-15.3f\n", 
+                reg_name, name, row.d_gdp[1], row.d_emp_coal[1])
+        end
+    end
+    println("-"^40)
+end
+println("="^80)

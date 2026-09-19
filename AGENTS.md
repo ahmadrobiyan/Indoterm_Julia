@@ -28,6 +28,33 @@ were the port silently departing from TABLO semantics.
    (12, 34 regions remain test instruments only — see `VV_PLAN.md` V4 for how 12-region was used
    this way).
 
+## What has been accomplished (plain terms)
+
+At the locked 6-island resolution, this is a verified, externally validated,
+publication-grade model with one narrow disclosed caveat:
+
+1. **It reproduces its own base year.** Zero shock → zero change, residual ~1e-9.
+   (Required converting every equation from %-change to true levels form first.)
+2. **It matches the original authors' published results.** V9 passes — all 8 Table 2
+   columns agree in sign and within 0.5 pp. The model agrees with the GEMPACK
+   original, not just with itself.
+3. **It survives standard stress tests.** Numeraire swap leaves real quantities
+   untouched (V2); homogeneity holds to 2.4e-15; big-step vs small-step solves agree
+   (V3); income-side GDP decomposition closes to 0.7% (V5); Walras identity holds
+   nationally (V1).
+4. **Real shocks run end to end** (coalprice +12%, TERM_CMF_REFERENCE), through full
+   continuation paths including folds. The short-run closure genuinely folds under
+   this shock — reported as "ordering not established" (V6), not hidden.
+5. **One honest limitation (V4).** Region-level *sign* for a small set of near-zero
+   variables (concentrated in BaliNusa) is resolution-sensitive — the true response
+   sits near a zero-crossing, not a code defect. National GDP is unaffected
+   (0.04–0.05% across all variants). Screen any scenario with
+   `print_regional_confidence_report` before reporting regional signs.
+6. **It outgrew its original scale ceiling.** The Stage 2a Schur solver is
+   bit-identical to LU at 6 regions, and the full 34-region system factorizes in
+   ~15.7 GB with a converged benchmark (Sept 2026 — the earlier "memory wall" OOM
+   verdict was disproved by measurement). **34-province shocks CLOSED 2026-09-17 as `non-gating` by user decision** — 6 island groups stays the locked publication model; provincial shocks are structural-only until a solver change is authorized (Stage 2b.4).
+
 ## Current state
 
 Status is tracked in `VV_PLAN.md`'s gate table (V1-V9+), not duplicated here — read that file for
@@ -108,14 +135,17 @@ A stalled or slow-converging iterative solve (e.g. CGNR) is not evidence the und
 rank-deficient or inconsistent — it may simply be dominated by a near-singular mode that a direct
 solve handles fine. Check with a direct factorization (LU) residual before concluding a defect.
 
-### Region-scaling has a hard wall — LU fill-in, not variable count
-Sparse LU fill-in ratio grows steeply with region count (measured: ~15× at 6 regions, ~70× at 20),
-driving peak memory well past typical machine limits before regions get anywhere near the model's
-native 34. Sparse-matrix declaration alone cannot fix this — it is a structural property of the
-elimination ordering. Reaching the full 34-region resolution requires a separate condensation
-effort, not just "more patience" or "more RAM" at the margin. Treat any resolution above 6 as a
-test instrument (see `VV_PLAN.md` V4), not a target for the locked validation model, unless that
-condensation work is explicitly undertaken.
+### Region-scaling: LU fill-in is structural, but 34 regions now factorizes
+Sparse LU fill-in ratio grows steeply with region count (measured: ~15x at 6 regions, ~70x at 20),
+and plain-LU peak memory outgrows typical machines well before the model's native 34 regions.
+Sparse-matrix declaration alone cannot fix this — it is a structural property of the
+elimination ordering. Update Sept 2026: the Stage 2a Schur condensation (PRIMARY set) changed
+the picture — the full 34-region system factorizes at 234M nnz / ~15.7 GB peak and reproduces
+its benchmark to 8.7e-9 (`logs/memledger_34_b.log`), so the old "memory wall" OOM verdict is
+withdrawn. The open scaling item is *shock* convergence at 34 regions (line-search stalls
+mid-path even on 0.1% shocks), not factorization memory. Until that is solved, treat any
+resolution above 6 as a test instrument (see `VV_PLAN.md` V4), not a target for the locked
+validation model.
 
 ## Environment gotchas (Windows)
 

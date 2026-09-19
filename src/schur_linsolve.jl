@@ -307,6 +307,11 @@ bordered solver below (one factorization serves both bordered RHS).
 function schur_factorize(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
                          verbose::Bool=false, dfloor::Float64=SCHUR_DFLOOR)
     log(msg) = verbose && println(msg)
+    # verbose is overloaded as the memory ledger switch by solve_newton! (memlog);
+    # default false keeps the production path silent and behavior-identical.
+    mem(tag) = verbose && (println("  [mem] schur " * tag * "  peakRSS=" *
+                                   string(round(Sys.maxrss() / 2^30; digits=2)) * " GiB");
+                            flush(stdout))
     local plan
     try
         plan = build_schur_plan(J, fam; verbose=verbose, dfloor=dfloor)
@@ -315,11 +320,15 @@ function schur_factorize(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
         return nothing
     end
     plan === nothing && return nothing
+    mem("plan built")
     S, R, P, invP, C, restR = plan.S, plan.R, plan.P, plan.invP, plan.C, plan.restR
+    log("  schur: |S|=$(length(S)) |C|=$(length(C)) restR=$(length(restR))")
     try
         B = J[R, C]; A = J[restR, S]
+        mem("blocks sliced: nnz(B)=$(nnz(B)) nnz(A)=$(nnz(A)) nnz(D)=$(nnz(J[R, S]))")
         Dp = J[R[P], S[P]]
         Yp = _schur_tri_sparse(Dp, B[P, :])
+        mem("DinvB: nnz(Y)=$(nnz(Yp))")
         ymax = maximum(abs, nonzeros(Yp); init=0.0)
         if ymax > 0
             I2, J2, V2 = findnz(Yp)
@@ -329,7 +338,9 @@ function schur_factorize(J::SparseMatrixCSC{Float64,Int}, fam::Vector{String};
         Y = Yp[invP, :]
         Kt = J[restR, C] - A * Y
         dropzeros!(Kt)
+        mem("Ktilde formed: nnz(Ktilde)=$(nnz(Kt))")
         Fk = lu(Kt)
+        mem("lu(Ktilde) done: nnz(L)+nnz(U)=$(nnz(Fk.L)+nnz(Fk.U))")
         return plan, Y, Fk
     catch e
         log("  schur: factorize failed — " * sprint(showerror, e))

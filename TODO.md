@@ -11,7 +11,9 @@
       `build_model!.jl`, `prepare_parameters.jl`, the `PLAN.md`/`TODO.md` updates, the P021/FRISCH
       fix, and `test/run_full_model.jl`. Not yet pushed to `origin/master` — ask before pushing.
 
-## CURRENT FOCUS (2026-07-25) — read this first
+## CURRENT FOCUS (2026-09-17) — read this first
+
+> **Update 2026-09-17 — 34-province shocks `non-gating`.** `TODO.md` below is historical (2026-07-25). Current truth is `VV_PLAN.md` (addendum 2026-09-17) + `AGENTS.md:53-57`.
 
 Everything below this section is historical unless linked from here. Full rationale in `PLAN.md`
 ("Gate #5c RESOLVED").

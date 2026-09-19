@@ -85,6 +85,9 @@ Per "Revised guidance for the remaining phases" below, V2/V6/V4 are the next pri
 arclength regression is fixed — they vary a condition, which is what has found every real defect
 in this project so far.
 
+### Addendum 2026-09-17 — 34-province shocks `non-gating` (user decision)
+34-province shocked solves stalled under both closures (`blabnat 1%` line-search plateau, `+12%` coal at `t=0.05` `||F||=1.9e-5` with proper `COALPRICE_SWAPS` closure — see `HANDOFF-2026-09-13_FINAL.md` and `logs/solve_34_coalA_tol1e-4_*.log`). Honest `1e-4` floor (1.2M eqs, `κ~1e10`) would accept that step, but the full path to `t=1` was never walked. **By user decision, 34-province shocks are closed `non-gating`: 6 island groups stays the locked publication model; 34 provinces remain structural-only (shares, linkages, exposure) until a solver change is authorized. `SCALE34_PLAN.md` Stage 2b.4/2b.5, `AGENTS.md:53-57`, `README.md:120-123`, and `INDONESIA_PORTRAIT.md:7,260` now carry the non-gating note.**
+
 ---
 
 ## Gates to add
@@ -630,6 +633,14 @@ correctly including the known V4 near-zero set — `xinvi[BaliNusa]` 0.2046%, `x
 values (0.205%/0.202%/0.201%) to 3 decimal places, via a completely different code path (one
 6-region solve plus a magnitude heuristic, vs. two solves and a cross-resolution compare). This
 cross-check is strong evidence the heuristic measures the right thing.
+
+### 34-region scaling status — benchmark converges, shocks open (2026-09-13, updated 2026-09-17)
+**Type:** scaling / test-instrument record · **Status: benchmark ✅, shock convergence 🔴 open (nongating — no reported impact depends on it).**
+
+- **Memory wall withdrawn.** The full 34-region system (25 sectors, square 1,196,221², free-J nnz 5,709,864, K̃ nnz 5,242,253) factorizes on the Schur path: `lu(K̃)` 234,197,687 nnz at peak RSS 15.66 GiB on a ~23.8 GiB machine, and the **benchmark (zero shock) converges to ‖F‖∞ = 8.675669960211962e-9** — no step needed. Evidence: `logs/memledger_34_b.log`; correction recorded in `HANDOFF-2026-09-13_FINAL.md`. The earlier "structural memory wall" OOM verdict (and the "34 regions infeasible" premises in this section's methodology note and BaliNusa what-if) is therefore **withdrawn as a memory claim**.
+- **Blocker is shock convergence, not factorization.** A 1% `blabnat` probe factorizes cleanly (261.8 s, lin_rel 5.51e-11) but the line search stalls over 20 backtracks with merit stuck ~0.043 (`status=maxit`). Probes: `test/scratch/_solve_34_smallshock.jl`; `test/scratch/_solve_34_coalprice.jl` stage A (+12% `fpexp_d` coal under `COALPRICE_SWAPS`, `:exrate`, `tol=1e-4` — the honest double-precision floor at this scale, κ(J) ~ 1e10, not 1e-8).
+- **Next (2b.5):** full `COALPRICE_REFERENCE` +50% at 34 regions once 2b.4 converges — national macro table, 34-province GDP, and 34→6 aggregation against Table 2/V9 (`_solve_34_coalprice.jl` stage B).
+- **What this licenses.** Reporting **34-province structure** (shares, HHI, exposure) was always fine and is unchanged. Reporting **34-province shock impacts** remains out of scope: every impact in this project is quoted at the locked 6 island groups, and the reference itself (`draftreport.pdf` §6.1, Tables 4–5) solves an 18-region × 30-sector aggregation, not 34×185. **Constraint (AGENTS.md):** 6 regions stays the locked validation model; 12/34 regions are test instruments until 2b.4–2b.5 pass. No `src/` solver changes without authorization — scratch + logs only.
 
 ---
 

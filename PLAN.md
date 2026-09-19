@@ -299,9 +299,9 @@ resource question:
 **The binding constraint is LU fill-in, not variable count.** The Jacobian grows roughly `n^1.7`,
 but its LU factors grow `~n^2.7`: the fill ratio itself climbs 15 → 22 → 55 → 70. At n=20 peak
 memory already hits the machine's ~16 GB ceiling; extrapolating to n=34 gives ~6M Jacobian
-nonzeros and a fill ratio well past 100, i.e. hundreds of millions of LU nonzeros. **34 regions is
-not reachable on this hardware without condensation.** n=14 (9.1 GB) is the largest comfortable
-size today; n=20 is the practical edge.
+nonzeros and a fill ratio well past 100, i.e. hundreds of millions of LU nonzeros.
+
+> **Update 2026-09-13 — memory wall withdrawn.** Schur PRIMARY condensation factorizes 34 regions at 234M nnz / 15.7 GB (benchmark 8.7e-9, `logs/memledger_34_b.log`). **34 regions is reachable for factorization/benchmark; shocked 34-province solves are closed `non-gating` 2026-09-17 — see `VV_PLAN.md` and `AGENTS.md`.**
 
 **Correction to the earlier plan.** The hypothesis recorded above — that sparse declaration alone
 might suffice because "the thing making the model bigger is also making it emptier" — is

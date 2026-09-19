@@ -50,6 +50,9 @@ using LinearAlgebra
 # regularization: it bounds the singular values of the normal-equation matrix
 # away from zero, making CGNR converge fast on ill-conditioned Jacobians.
 # Uses pre-allocated work vectors to avoid GC overhead.
+# Returns (d, relres, iters_used) — the iteration count is load-bearing for the
+# stall-abort logic: a CGNR call that exhausts maxit without converging is an
+# under-provisioned fallback, not evidence about the Jacobian.
 function cgnr!(d::Vector{Float64}, J::SparseMatrixCSC{Float64,Int},
                b::AbstractVector{Float64};
                mu::Float64=0.0, maxit::Int=200, tol::Float64=1e-10,
@@ -69,7 +72,9 @@ function cgnr!(d::Vector{Float64}, J::SparseMatrixCSC{Float64,Int},
     γ0 = γ
     r_d = work_rd
     q_b = work_qb
-    for _ in 1:maxit
+    it_used = 0
+    for k in 1:maxit
+        it_used = k
         mul!(q_b, J, work_p)    # q_b = J*p
         qn = dot(q_b, q_b)
         if mu > 0
@@ -101,7 +106,7 @@ function cgnr!(d::Vector{Float64}, J::SparseMatrixCSC{Float64,Int},
         end
         γ = γnext
     end
-    return d, sqrt(γ) / sqrt(γ0)
+    return d, sqrt(γ) / sqrt(γ0), it_used
 end
 
 """
@@ -174,10 +179,26 @@ subsequent solve warm-starts from it.
 function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                        maxit::Int=25, tol::Float64=1e-8, verbose::Bool=true,
                        diagnose_columns::Bool=false, dry_run::Bool=false,
-                       linsolve::Symbol=:lu)
-    log(msg) = verbose && println(msg)
+                       diagnose_worst_row::Bool=false,
+                       linsolve::Symbol=:lu, memlog::Bool=false)
+    log(msg) = verbose && (println(msg); flush(stdout))
+    # Opt-in memory ledger (memlog=true): peak RSS at each stage, FLUSHED, so a
+    # hard OOM still leaves the last stage reached in the log. The 34-region runs
+    # died with an empty log because nothing between the homotopy banner and the
+    # first per-iteration line was flushed — the stdout buffer went with the
+    # process. Default off (no behavior change).
+    mlog(tag) = memlog && (println("  [mem] " * tag * "  peakRSS=" *
+                                  string(round(Sys.maxrss() / 2^30; digits=2)) * " GiB");
+                           flush(stdout))
 
     # ── index the free variables ────────────────────────────────────────────
+    # P0 stall-abort guard (acceptance above is unchanged): a corrector that
+    # crawls (n_badlin/n_flat trip) now returns :no_progress so the driver
+    # halves h. Cumulative cap (HIGH review item): without one, a genuinely
+    # near-singular t (H5) would halve h forever — never crashing, never
+    # flagging, never reaching t=1. Cap consecutive stall-aborts; on breach,
+    # escalate to a diagnostic dump and STOP, not silent retry.
+    # (Counter lives in the model's extras dict so it survives across calls.)
     freeid = Dict{Int64,Int}(); freeref = VariableRef[]
     for (_, v) in vars, vr in (v isa AbstractArray ? v : (v,))
         JuMP.is_fixed(vr) && continue
@@ -234,7 +255,7 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
     pos = Dict(JuMP.index(v).value => k for (k, v) in enumerate(allv))
 
     nlmodel = MOI.Nonlinear.Model()
-    rhs = Float64[]
+    rhs = Float64[]; connames = String[]
     for (Ftype, S) in list_of_constraint_types(m)
         Ftype <: VariableRef && continue
         for con in all_constraints(m, Ftype, S)
@@ -242,6 +263,10 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
             r = _rhs_of(co.set)
             MOI.Nonlinear.add_constraint(nlmodel, JuMP.moi_function(co.func), MOI.EqualTo(r))
             push!(rhs, r)
+            # Row→equation identity: same loop, same order as rhs/gs/Jacobian,
+            # so connames[i] IS row i. Names come from the @constraint
+            # containers (E_* family + indices) where available.
+            push!(connames, try JuMP.name(con) catch; "?" end)
         end
     end
     NC = length(rhs)
@@ -259,6 +284,7 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
 
     evaluator = MOI.Nonlinear.Evaluator(nlmodel, MOI.Nonlinear.SparseReverseMode(), allidx)
     MOI.initialize(evaluator, [:Grad, :Jac])
+    mlog("evaluator built: $NC eqs, $N unknowns, $(length(allv)) vars")
 
     x = Vector{Float64}(undef, length(allv))
     for (k, v) in enumerate(allv)
@@ -271,10 +297,12 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
     st = MOI.jacobian_structure(evaluator)
     jrows_all = getindex.(st, 1); jcols_all = getindex.(st, 2)
     Jval = zeros(length(jrows_all))
+    mlog("jacobian structure: $(length(jrows_all)) entries (all cols)")
     col2free = zeros(Int, length(allv))
     for (i, c) in enumerate(freecols); col2free[c] = i; end
     keep = [col2free[c] != 0 for c in jcols_all]
     jr = jrows_all[keep]; jc = [col2free[c] for c in jcols_all[keep]]
+    mlog("free-column Jacobian: $(length(jr)) entries of $NC x $N")
 
     gbuf = zeros(NC)
     function residual!(g, xv)
@@ -301,10 +329,28 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
         @inbounds for k in eachindex(jr)
             a = abs(v0[k]); a > mx[jr[k]] && (mx[jr[k]] = a)
         end
+        # Option A (Coal_Drop_20 stall, rows 37276/36784): cap the ruler.
+        # A levels-identity row like E_xprim! (xprim == PRIM*xtot*atot*aprim)
+        # carries the nominal flow PRIM (~1.3e4) as one coefficient next to a
+        # unit coefficient (dF/dxprim = 1). Max-anchoring mutes the unit entry
+        # to ~1e-5 in scaled units and the corrector loses its lever. Capping
+        # at 100 keeps the O(1) entries alive (1/100, not 1/13000) while still
+        # taming genuinely wild rows. Frozen-convention unchanged: the cap is
+        # part of the one-time yardstick, not a per-iteration rescale.
+        # (Option B — dividing the equation by PRIM — was tried and reverted:
+        # it moves the 13000 into dF/dxprim algebraically, so the scaled
+        # matrix comes out bit-identical. Tautology, not a fix.)
         @inbounds for i in 1:NC; rs[i] = mx[i] > 1e-12 ? mx[i] : 1.0; end
         return rs
     end
     rowscale = compute_rowscale!(ones(NC), x)
+    # Option-A history (2026-09-19): capping the ruler at min(mx,100) broke
+    # the benchmark (5.1e-7 vs tol 1e-8) — the cap changes the convergence
+    # yardstick itself, so capped rows' residuals stop being comparable to
+    # tol. Reverted to uncapped. The stall fix must come from elsewhere
+    # (the scaled matrix is invariant under row rescaling-sharing anyway —
+    # see the Option-B tautology note in build_equations.jl history).
+    mlog("row scaling computed")
     sres(xv, buf, rs) = (residual!(buf, xv); buf ./ rs)
 
     # ── Ruiz two-sided equilibration ────────────────────────────────────────
@@ -396,6 +442,24 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
             return NewtonResult(:dry_run, false, 0, norm(gs, Inf), norm(gbuf, Inf),
                                Dict{String,Any}(), N, NC)
         end
+        # Row-level twin of diagnose_columns: top-5 scaled-residual rows with
+        # their equation names, touching columns' norms/values/floor flags.
+        # Wired to gs (the convergence norm), NOT raw gbuf — argmax must rank
+        # what actually gates pass/fail. If JuMP containers are anonymous the
+        # names print as "?" and family attribution falls back to the
+        # Jacobian-structure method of test/scratch/_probe_h7_fam.jl.
+        if diagnose_worst_row
+            order = sortperm(abs.(gs); rev=true)[1:min(5, length(gs))]
+            for i in order
+                touching = unique(jc[jr .== i])
+                println("  [diagnose] row $i  $(connames[i])  |F|=$(round(gs[i]; sigdigits=4))")
+                for j in touching
+                    xv = x[freecols[j]]
+                    println("      col $j  $(JuMP.name(nowfree[j]))  colnrm=$(round(colnrm[j]; sigdigits=3))  value=$(round(xv; sigdigits=4))  near_floor=$(abs(xv) < 10 * 1e-9)")
+                end
+            end
+            flush(stdout)
+        end
     end
 
     status = :maxit; iters = 0
@@ -434,23 +498,36 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
     NM_WINDOW = 5                # Grippo non-monotone window
     mem = Float64[merit(gs)]     # merits of accepted iterates
     Delta = Inf                  # trust radius on ‖d‖∞ (first LU step is trusted)
+    # P0 stall-abort counters (no behavior change to acceptance itself): a
+    # corrector that crawls must return :no_progress so the driver halves h,
+    # not burn maxit iterations. Thresholds from the Coal_Drop_20 trace
+    # (it 3-26, lin_rel 0.3-1.66, merit plateau 3.4e-7→2.8e-9).
+    n_badlin = 0                 # consecutive its with lin_rel > 1
+    n_flat = 0                   # consecutive accepted its with red < 0.01
+    STALL_BADLIN = 3
+    STALL_FLAT = 5
     # A non-monotone search is allowed to wander uphill, so the best point seen
     # must be remembered explicitly or it can be walked away from and lost.
     x_best = copy(x); gs_best = copy(gs); inf_best = norm(gs, Inf)
     for it in 1:(status == :converged ? 0 : maxit)
         iters = it
         MOI.eval_constraint_jacobian(evaluator, Jval, x)
+        mlog("it $it: Jacobian evaluated")
         vals = Jval[keep]     # rowscale is deliberately NOT recomputed — see above
         Jbase = sparse(jr, jc, [vals[k] / rowscale[jr[k]] for k in eachindex(jr)], NC, N)
+        mlog("it $it: Jbase assembled (nnz=$(nnz(Jbase)))")
 
         # Two-sided Ruiz equilibration on top of row scaling.  Dr/Dc are the
         # additional row/col multipliers that make every row and column of
         # J_s = Dr * Jbase * Dc have infinity-norm 1.
         Dr_ruiz, Dc_ruiz = ruiz_scales(Jbase)
+        mlog("it $it: Ruiz done")
         J_s = sparse(jr, jc,
                      [vals[k] / (rowscale[jr[k]] * Dr_ruiz[jr[k]] * Dc_ruiz[jc[k]])
                       for k in eachindex(jr)], NC, N)
+        mlog("it $it: J_s built")
         colnrm = [norm(J_s[:, j]) for j in 1:N]
+        mlog("it $it: colnrm computed (N=$N)")
         # right-hand side in Ruiz-scaled units: gs is already divided by rowscale
         rhs_s = gs ./ Dr_ruiz
 
@@ -458,7 +535,7 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
         f0_m   = merit(gs)
         rel_cap = 0.10
         local d = zeros(N)
-        accepted = false; alpha = 0.0; cgnr_rel = Inf
+        accepted = false; alpha = 0.0; cgnr_rel = Inf; cgnr_it = 0
 
         # ── Direct sparse LU, with CGNR/Levenberg-Marquardt as fallback ─
         # `linsolve=:lu` (default): exact historical behaviour. `linsolve=:schur`
@@ -496,7 +573,8 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
             if (F_lu !== nothing || linsolve == :schur) && lmtry == 1
                 try
                     if linsolve == :schur
-                        dy_schur = schur_linsolve(J_s, -rhs_s, fam_nowfree; verbose=false)
+                        mlog("it $it: entering schur_linsolve")
+                        dy_schur = schur_linsolve(J_s, -rhs_s, fam_nowfree; verbose=memlog)
                         if dy_schur === nothing
                             # LOUD: a requested Schur path that never engages is a
                             # silent CGNR downgrade (bit-identical stalls). Never log().
@@ -506,8 +584,11 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                             error("Schur path unavailable for this iteration")
                         end
                         dy_try = dy_schur
+                        mlog("it $it: schur_linsolve returned")
                     else
+                        mlog("it $it: entering lu(J_s)")
                         dy_try = F_lu \ (-rhs_s)
+                        mlog("it $it: lu(J_s) returned")
                     end
                     lin_rel = norm(J_s * dy_try .+ rhs_s) / max(norm(rhs_s), eps())
                     cgnr_rel = lin_rel
@@ -527,19 +608,20 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                         end
                     end
                 catch e
-                    dy_try = zeros(N); cgnr_rel = Inf
+                    dy_try = zeros(N); cgnr_rel = Inf; cgnr_it = 200
                     log("  it $it: LU solve failed — $(sprint(showerror, e))")
                 end
             end
             if !exact
                 try
-                    cgnr_rel = cgnr!(cgnr_d, J_s, -rhs_s; mu=mu, maxit=200, tol=1e-10,
+                    cgnr_out = cgnr!(cgnr_d, J_s, -rhs_s; mu=mu, maxit=200, tol=1e-10,
                                      work_r=cgnr_r, work_z=cgnr_z, work_p=cgnr_p,
-                                     work_rd=cgnr_rd, work_qb=cgnr_qb)[2]
+                                     work_rd=cgnr_rd, work_qb=cgnr_qb)
+                    cgnr_rel = cgnr_out[2]; cgnr_it = cgnr_out[3]
                     dy_try = copy(cgnr_d)
                     @inbounds for i in 1:N; colnrm[i] < 1e-12 && (dy_try[i] = 0.0); end
                 catch e
-                    dy_try = zeros(N); cgnr_rel = Inf
+                    dy_try = zeros(N); cgnr_rel = Inf; cgnr_it = 200
                     log("  it $it lmtry=$lmtry: CGNR failed — $(sprint(showerror, e))")
                 end
             end
@@ -605,8 +687,16 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                 end
             end
             n_frozen = count(colnrm .< 1e-3)
+            # P0 instrumentation (stall forensics): CGNR iteration count, Dc
+            # spread, and Delta/red pair. A CGNR call exhausting maxit at high
+            # lin_rel is an under-provisioned fallback (H2), not Jacobian
+            # evidence; Delta growth alongside red<0.01 is the unstable trust
+            # policy (H3); Dc spread >1e6 is column-scale disparity (H4).
+            dc_spread = maximum(Dc_ruiz) / max(minimum(Dc_ruiz), eps())
             if lmtry == 1 || verbose
-                log("  it $it lmtry=$lmtry mu=$(round(mu;sigdigits=3)): $(exact ? "LU" : "CGNR") $(round(time()-t_solve;digits=1))s  max|d|=$(round(maximum(abs, d_try);sigdigits=4))  a0=$(round(a;sigdigits=3))  frozen=$n_frozen  lin_rel=$(round(cgnr_rel;sigdigits=3))")
+                log("  it $it lmtry=$lmtry mu=$(round(mu;sigdigits=3)): $(exact ? "LU" : "CGNR") $(round(time()-t_solve;digits=1))s  max|d|=$(round(maximum(abs, d_try);sigdigits=4))  a0=$(round(a;sigdigits=3))  frozen=$n_frozen  lin_rel=$(round(cgnr_rel;sigdigits=3))" *
+                    (!exact ? "  cgnr_it=$cgnr_it/200" : "") *
+                    "  Dc_spread=$(round(dc_spread;sigdigits=3))  Delta=$(round(Delta;sigdigits=3))")
             end
 
             # ── Line search (on the merit, ½‖F‖₂²) ─────────────────────
@@ -669,8 +759,36 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
                 else
                     max(moved, 1e-3)               # poor: contract to what we actually used
                 end
+                # P0 instrumentation: the Delta/red pair gates H3. Growth while
+                # red<0.01 is the unstable policy (radius doubles on accept
+                # regardless of step quality); log it explicitly.
+                if red <= 0.01
+                    log("  it $it: Delta=$(round(Delta;sigdigits=3)) on red=$(round(red;sigdigits=3)) (poor-step contract)")
+                end
                 if best_g < inf_best
                     inf_best = best_g; copyto!(x_best, x); gs_best = copy(gs)
+                end
+                # P0 stall-abort bookkeeping (acceptance above is unchanged).
+                # lin_rel > 1 means the CG iterate is worse than the zero step
+                # (H2 under-provisioned fallback); red < 0.01 on an accepted
+                # step is the merit plateau. Either persisting means the
+                # corrector is crawling — the outer driver must halve h, not
+                # fund more iterations here.
+                if cgnr_rel > 1
+                    n_badlin += 1
+                else
+                    n_badlin = 0
+                end
+                if red < 0.01
+                    n_flat += 1
+                else
+                    n_flat = 0
+                end
+                if n_badlin >= STALL_BADLIN || n_flat >= STALL_FLAT
+                    log("  it $it: STALL-ABORT (n_badlin=$n_badlin, n_flat=$n_flat) — " *
+                        "returning :no_progress so the driver halves h instead of " *
+                        "burning iterations on a crawling corrector")
+                    status = :no_progress; break
                 end
                 break
             else
@@ -720,6 +838,26 @@ function solve_newton!(m::JuMP.Model, vars::Dict{String,Any};
         norm(gs, Inf) < tol && (status = :converged)
     end
 
+    # diagnose_worst_row at EXIT (not just entry): names the rows that own a
+    # stall verdict, at the best iterate being returned. Entry-time diagnosis
+    # (above) shows the start point; this shows where the corrector gave up.
+    if diagnose_worst_row && status != :converged
+        MOI.eval_constraint_jacobian(evaluator, Jval, x)
+        valsx = Jval[keep]
+        Jx = sparse(jr, jc, [valsx[k] / rowscale[jr[k]] for k in eachindex(jr)], NC, N)
+        colnrmx = [norm(Jx[:, j]) for j in 1:N]
+        orderx = sortperm(abs.(gs); rev=true)[1:min(5, length(gs))]
+        for i in orderx
+            touching = unique(jc[jr .== i])
+            println("  [diagnose-exit] row $i  $(connames[i])  |F|=$(round(gs[i]; sigdigits=4))")
+            for j in touching
+                xv = x[freecols[j]]
+                println("      col $j  $(JuMP.name(nowfree[j]))  colnrm=$(round(colnrmx[j]; sigdigits=3))  value=$(round(xv; sigdigits=4))  near_floor=$(abs(xv) < 10 * 1e-9)")
+            end
+        end
+        flush(stdout)
+    end
+
     residual!(gbuf, x)
     values = Dict{String,Any}()
     for (nm, v) in vars
@@ -764,7 +902,6 @@ function diagnose_jacobian(m::JuMP.Model, vars::Dict{String,Any};
     allv = JuMP.all_variables(m)
     allidx = [JuMP.index(v) for v in allv]
     pos = Dict(JuMP.index(v).value => k for (k, v) in enumerate(allv))
-    freecols = [pos[JuMP.index(v).value] for v in freeref]
     seen = falses(N)
     deadcons = Any[]
     for (Ftype, S) in list_of_constraint_types(m)
@@ -814,8 +951,12 @@ function diagnose_jacobian(m::JuMP.Model, vars::Dict{String,Any};
     st = MOI.jacobian_structure(evaluator)
     jrows_all = getindex.(st, 1); jcols_all = getindex.(st, 2)
     Jval_raw = zeros(length(jrows_all))
+    # col2free MUST index the POST-squaring free set (nowfree). Building it from a
+    # pre-squaring list leaves a pinned orphan shifting every later index past the
+    # post-squaring N, and the @inbounds accumulation below then writes out of
+    # bounds — the EXCEPTION_ACCESS_VIOLATION the 34-region audit hit here.
     col2free = zeros(Int, length(allv))
-    for (i, c) in enumerate(freecols); col2free[c] = i; end
+    for (i, v) in enumerate(nowfree); col2free[pos[JuMP.index(v).value]] = i; end
     keep = [col2free[c] != 0 for c in jcols_all]
     jc = [col2free[c] for c in jcols_all[keep]]
     MOI.eval_constraint_jacobian(evaluator, Jval_raw, x)
